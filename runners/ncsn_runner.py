@@ -334,7 +334,7 @@ class NCSNRunner():
             def test_tb_hook():
                 pass
 
-        print(scorenet)
+        # print(scorenet)
         net = scorenet.module if hasattr(scorenet, 'module') else scorenet
 
         # Conditional
@@ -369,7 +369,7 @@ class NCSNRunner():
 
         early_end = False
         for epoch in range(start_epoch, self.config.training.n_epochs):
-            for batch, (X, y) in enumerate(dataloader):
+            for batch, (X, actions) in enumerate(dataloader):
 
                 optimizer.zero_grad()
                 lr = warmup_lr(optimizer, step, getattr(self.config.optim, 'warmup', 0), self.config.optim.lr)
@@ -378,6 +378,7 @@ class NCSNRunner():
 
                 # Data
                 X = X.to(self.config.device)
+                actions = actions.to(self.config.device)
                 X = data_transform(self.config, X)
                 X, cond, cond_mask = conditioning_fn(self.config, X, num_frames_pred=self.config.data.num_frames,
                                                      prob_mask_cond=getattr(self.config.data, 'prob_mask_cond', 0.0),
@@ -386,7 +387,7 @@ class NCSNRunner():
 
                 # Loss
                 itr_start = time.time()
-                loss = anneal_dsm_score_estimation(scorenet, X, labels=None, cond=cond, cond_mask=cond_mask,
+                loss = anneal_dsm_score_estimation(scorenet, X, labels=None, cond=cond, cond_mask=cond_mask, actions=actions,
                                                    loss_type=getattr(self.config.training, 'loss_type', 'a'),
                                                    gamma=getattr(self.config.model, 'gamma', False),
                                                    L1=getattr(self.config.training, 'L1', False), hook=hook,

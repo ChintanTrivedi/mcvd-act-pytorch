@@ -132,15 +132,17 @@ class Upsample(nn.Module):
 
 
 class GaussianFourierProjection(nn.Module):
-  """Gaussian random features for encoding time steps."""  
-  def __init__(self, embed_dim, scale=30.):
-    super().__init__()
-    # Randomly sample weights during initialization. These weights are fixed 
-    # during optimization and are not trainable.
-    self.W = nn.Parameter(torch.randn(embed_dim // 2) * scale, requires_grad=False)
-  def forward(self, x):
-    x_proj = x[:, None] * self.W[None, :] * 2 * np.pi
-    return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], dim=-1)
+    """Gaussian random features for encoding time steps."""
+
+    def __init__(self, embed_dim, scale=30.):
+        super().__init__()
+        # Randomly sample weights during initialization. These weights are fixed
+        # during optimization and are not trainable.
+        self.W = nn.Parameter(torch.randn(embed_dim // 2) * scale, requires_grad=False)
+
+    def forward(self, x):
+        x_proj = x[:, None] * self.W[None, :] * 2 * np.pi
+        return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], dim=-1)
 
 
 def get_timestep_embedding(timesteps, embedding_dim: int = 128):
@@ -181,6 +183,7 @@ class UNet(nn.Module):
         self.config = config
         self.n_channels = n_channels = config.data.channels
         self.ch = ch = config.model.ngf
+        self.act_dim = 6  # 6 action variables for CARLA
         self.mode = mode = getattr(config, 'mode', 'deep')
         assert mode in ['deep', 'deeper', 'deepest']
         self.dropout = nn.Dropout2d(p=getattr(config.model, 'dropout', 0.0))
@@ -191,7 +194,9 @@ class UNet(nn.Module):
         self.rescaled = config.data.rescaled
 
         self.num_frames = num_frames = getattr(config.data, 'num_frames', 1)
-        self.num_frames_cond = num_frames_cond = getattr(config.data, 'num_frames_cond', 0) + getattr(config.data, "num_frames_future", 0)
+        self.num_frames_cond = num_frames_cond = getattr(config.data, 'num_frames_cond', 0) + getattr(config.data,
+                                                                                                      "num_frames_future",
+                                                                                                      0)
 
         # TODO make sure channel is in dimensions 1 [bs x c x 32 x 32]
         ResnetBlock_ = partialclass(ResnetBlock, dropout=self.dropout, tembdim=ch * 4, conditional=time_conditional)
@@ -205,7 +210,8 @@ class UNet(nn.Module):
 
         # DOWN
         self.downblocks = nn.ModuleList()
-        self.downblocks.append(nn.Conv2d(n_channels*(num_frames + num_frames_cond), ch, kernel_size=3, padding=1, stride=1))
+        self.downblocks.append(
+            nn.Conv2d(n_channels * (num_frames + num_frames_cond), ch, kernel_size=3, padding=1, stride=1))
         prev_ch = ch_mult[0]
         ch_size = [ch]
         for i, ich in enumerate(ch_mult):
@@ -241,7 +247,10 @@ class UNet(nn.Module):
 
         self.normalize = Normalize(ch)
         self.nonlinearity = Swish()
-        self.out = nn.Conv2d(ch, n_channels*(num_frames + num_frames_cond) if getattr(config.model, 'output_all_frames', False) else n_channels*num_frames, kernel_size=3, stride=1, padding=1)
+        self.out = nn.Conv2d(ch,
+                             n_channels * (num_frames + num_frames_cond) if getattr(config.model, 'output_all_frames',
+                                                                                    False) else n_channels * num_frames,
+                             kernel_size=3, stride=1, padding=1)
         init_weights(self.out, scale=0)
 
         self.temb_dense = nn.Sequential(
@@ -252,14 +261,27 @@ class UNet(nn.Module):
         )
         init_weights(self.temb_dense, module_is_list=True)
 
-    # noinspection PyArgumentList
-    def forward(self, x, y=None, cond=None):
+        self.aemb_dense = nn.Sequential(
+            nn.Linear(self.act_dim, self.act_dim * 2),
+            self.nonlinearity,
+            nn.Linear(self.act_dim * 2, self.act_dim * 2),
+            self.nonlinearity
+        )
+        init_weights(self.aemb_dense, module_is_list=True)
 
-        if y is not None and self.time_conditional:
+    # noinspection PyArgumentList
+    def forward(self, x, y=None, cond=None, act_cond=None):
+
+        if y is not None and self.time_conditional and act_cond is not None:
             temb = get_timestep_embedding(y, self.ch)
             temb = self.temb_dense(temb)
         else:
             temb = None
+
+        if act_cond is not None:
+            # action embeddings with mlp
+            aemb = self.aemb_dense(act_cond)
+            temb = torch.cat((temb, aemb), dim=-1)
 
         if cond is not None:
             x = torch.cat([x, cond], dim=1)
@@ -293,7 +315,8 @@ class UNet(nn.Module):
         output = self.out(x)
 
         if getattr(self.config.model, 'output_all_frames', False) and cond is not None:
-            _, output = torch.split(output, [self.num_frames_cond*self.config.data.channels,self.num_frames*self.config.data.channels], dim=1)
+            _, output = torch.split(output, [self.num_frames_cond * self.config.data.channels,
+                                             self.num_frames * self.config.data.channels], dim=1)
 
         return output
 
@@ -311,8 +334,7 @@ class UNet_SMLD(nn.Module):
         self.noise_in_cond = getattr(config.model, 'noise_in_cond', False)
 
     def forward(self, x, y, cond=None, labels=None):
-
-        if self.noise_in_cond and cond is not None: # We add noise to cond
+        if self.noise_in_cond and cond is not None:  # We add noise to cond
             sigmas = self.sigmas
             # if labels is None:
             #     labels = torch.randint(0, len(sigmas), (cond.shape[0],), device=cond.device)
@@ -336,34 +358,41 @@ class UNet_DDPM(nn.Module):
 
         self.schedule = getattr(config.model, 'sigma_dist', 'linear')
         if self.schedule == 'linear':
-            self.register_buffer('betas', get_sigmas(config))   # large to small, doesn't match paper, match code instead
-            self.register_buffer('alphas', torch.cumprod(1 - self.betas.flip(0), 0).flip(0))    # flip for small-to-large, then flip back
+            self.register_buffer('betas', get_sigmas(config))  # large to small, doesn't match paper, match code instead
+            self.register_buffer('alphas', torch.cumprod(1 - self.betas.flip(0), 0).flip(
+                0))  # flip for small-to-large, then flip back
             self.register_buffer('alphas_prev', torch.cat([self.alphas[1:], torch.tensor([1.0]).to(self.alphas)]))
         elif self.schedule == 'cosine':
-            self.register_buffer('alphas', get_sigmas(config))  # large to small, doesn't match paper, match code instead
+            self.register_buffer('alphas',
+                                 get_sigmas(config))  # large to small, doesn't match paper, match code instead
             self.register_buffer('alphas_prev', torch.cat([self.alphas[1:], torch.tensor([1.0]).to(self.alphas)]))
-            self.register_buffer('betas', (1 - self.alphas/self.alphas_prev).clip_(0, 0.999))
+            self.register_buffer('betas', (1 - self.alphas / self.alphas_prev).clip_(0, 0.999))
         self.gamma = getattr(config.model, 'gamma', False)
         if self.gamma:
             self.theta_0 = 0.001
-            self.register_buffer('k', self.betas/(self.alphas*(self.theta_0 ** 2)))  # large to small, doesn't match paper, match code instead
-            self.register_buffer('k_cum', torch.cumsum(self.k.flip(0), 0).flip(0))  # flip for small-to-large, then flip back
-            self.register_buffer('theta_t', torch.sqrt(self.alphas)*self.theta_0)
+            self.register_buffer('k', self.betas / (
+                    self.alphas * (self.theta_0 ** 2)))  # large to small, doesn't match paper, match code instead
+            self.register_buffer('k_cum',
+                                 torch.cumsum(self.k.flip(0), 0).flip(0))  # flip for small-to-large, then flip back
+            self.register_buffer('theta_t', torch.sqrt(self.alphas) * self.theta_0)
 
         self.noise_in_cond = getattr(config.model, 'noise_in_cond', False)
 
     def forward(self, x, y, cond=None, labels=None, cond_mask=None):
-        if self.noise_in_cond and cond is not None: # We add noise to cond
+        if self.noise_in_cond and cond is not None:  # We add noise to cond
             alphas = self.alphas
             # if labels is None:
             #     labels = torch.randint(0, len(alphas), (cond.shape[0],), device=cond.device)
             labels = y
             used_alphas = alphas[labels].reshape(cond.shape[0], *([1] * len(cond.shape[1:])))
             if self.gamma:
-                used_k = self.k_cum[labels].reshape(cond.shape[0], *([1] * len(cond.shape[1:]))).repeat(1, *cond.shape[1:])
-                used_theta = self.theta_t[labels].reshape(cond.shape[0], *([1] * len(cond.shape[1:]))).repeat(1, *cond.shape[1:])
+                used_k = self.k_cum[labels].reshape(cond.shape[0], *([1] * len(cond.shape[1:]))).repeat(1,
+                                                                                                        *cond.shape[1:])
+                used_theta = self.theta_t[labels].reshape(cond.shape[0], *([1] * len(cond.shape[1:]))).repeat(1,
+                                                                                                              *cond.shape[
+                                                                                                               1:])
                 z = Gamma(used_k, 1 / used_theta).sample()
-                z = (z - used_k*used_theta)/(1 - used_alphas).sqrt()
+                z = (z - used_k * used_theta) / (1 - used_alphas).sqrt()
             else:
                 z = torch.randn_like(cond)
             cond = used_alphas.sqrt() * cond + (1 - used_alphas).sqrt() * z
