@@ -1500,9 +1500,10 @@ class NCSNRunner():
 
         # Collate fn for n repeats
         def my_collate(batch):
-            data, _ = zip(*batch)
+            data, act_data = zip(*batch)
             data = torch.stack(data).repeat_interleave(preds_per_test, dim=0)
-            return data, torch.zeros(len(data))
+            act_data = torch.stack(act_data).repeat_interleave(preds_per_test, dim=0)
+            return data, act_data
 
         # Data
         if self.condp == 0.0 and self.futrf == 0:  # (1) Prediction
