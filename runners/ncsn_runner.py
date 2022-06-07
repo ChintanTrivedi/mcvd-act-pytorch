@@ -1546,7 +1546,7 @@ class NCSNRunner():
         # Sampler
         sampler = self.get_sampler()
 
-        for i, (real_, _) in tqdm(enumerate(dataloader), total=min(max_data_iter, len(dataloader)),
+        for i, (real_, actions_) in tqdm(enumerate(dataloader), total=min(max_data_iter, len(dataloader)),
                                   desc="\nvideo_gen dataloader"):
 
             if i >= max_data_iter:  # stop early
@@ -1629,7 +1629,7 @@ class NCSNRunner():
                 # Generate samples
                 gen_samples = sampler(init_samples if i_frame == 0 or getattr(self.config.sampling, 'init_prev_t',
                                                                               -1) <= 0 else gen_samples,
-                                      mynet, cond=cond, cond_mask=cond_mask,
+                                      mynet, cond=cond, cond_mask=cond_mask, actions=actions_,
                                       n_steps_each=self.config.sampling.n_steps_each,
                                       step_lr=self.config.sampling.step_lr,
                                       verbose=True if not train else False, final_only=True,
