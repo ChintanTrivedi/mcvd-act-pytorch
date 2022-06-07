@@ -204,7 +204,7 @@ def ddim_sampler(x_mod, scorenet, cond=None, final_only=False, denoise=True, sub
 
 
 @torch.no_grad()
-def ddpm_sampler(x_mod, scorenet, cond=None, just_beta=False, final_only=False, denoise=True, subsample_steps=None,
+def ddpm_sampler(x_mod, scorenet, actions, cond=None, just_beta=False, final_only=False, denoise=True, subsample_steps=None,
                  same_noise=False, noise_val=None, frac_steps=None, verbose=False, log=False, clip_before=True, 
                  t_min=-1, gamma=False, **kwargs):
 
@@ -281,7 +281,7 @@ def ddpm_sampler(x_mod, scorenet, cond=None, just_beta=False, final_only=False, 
 
         c_beta, c_alpha, c_alpha_prev = betas[i], alphas[i], alphas_prev[i]
         labels = (step * torch.ones(x_mod.shape[0], device=x_mod.device)).long()
-        grad = scorenet(x_mod, labels)
+        grad = scorenet(x_mod, labels, actions=actions)
 
         # x_mod = 1 / (1 - c_beta).sqrt() * (x_mod + c_beta / (1 - c_alpha).sqrt() * grad)
         x0 = (1 / c_alpha.sqrt()) * (x_mod - (1 - c_alpha).sqrt() * grad)
@@ -330,7 +330,7 @@ def ddpm_sampler(x_mod, scorenet, cond=None, just_beta=False, final_only=False, 
     # Denoise
     if denoise:
         last_noise = ((L - 1) * torch.ones(x_mod.shape[0], device=x_mod.device)).long()
-        x_mod = x_mod - (1 - alphas[-1]).sqrt() * scorenet(x_mod, last_noise)
+        x_mod = x_mod - (1 - alphas[-1]).sqrt() * scorenet(x_mod, last_noise, actions)
         if not final_only:
             images.append(x_mod.to('cpu'))
 

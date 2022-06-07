@@ -479,6 +479,7 @@ class NCSNRunner():
                         test_X, test_y = next(test_iter)
 
                     test_X = test_X.to(self.config.device)
+                    test_y = test_y.to(self.config.device)
                     test_X = data_transform(self.config, test_X)
 
                     test_X, test_cond, test_cond_mask = conditioning_fn(self.config, test_X,
@@ -493,7 +494,7 @@ class NCSNRunner():
                     with torch.no_grad():
                         test_dsm_loss = anneal_dsm_score_estimation(test_scorenet, test_X, labels=None, cond=test_cond,
                                                                     cond_mask=test_cond_mask,
-                                                                    actions=actions,
+                                                                    actions=test_y,
                                                                     loss_type=getattr(self.config.training, 'loss_type',
                                                                                       'a'),
                                                                     gamma=getattr(self.config.model, 'gamma', False),
@@ -633,6 +634,7 @@ class NCSNRunner():
                             test_iter = iter(test_loader)
                             test_X, test_y = next(test_iter)
                         test_X = test_X[:len(init_samples)].to(self.config.device)
+                        test_y = test_y[:len(init_samples)].to(self.config.device)
                         test_X = data_transform(self.config, test_X)
                         test_X, test_cond, test_cond_mask = conditioning_fn(self.config, test_X,
                                                                             num_frames_pred=self.config.data.num_frames,
@@ -645,7 +647,7 @@ class NCSNRunner():
                                                                             conditional=conditional)
 
                     all_samples = sampler(init_samples, test_scorenet, cond=test_cond, cond_mask=test_cond_mask,
-                                          n_steps_each=self.config.sampling.n_steps_each,
+                                          n_steps_each=self.config.sampling.n_steps_each, actions=test_y,
                                           step_lr=self.config.sampling.step_lr, just_beta=False,
                                           final_only=True, denoise=self.config.sampling.denoise,
                                           subsample_steps=getattr(self.config.sampling, 'subsample', None),
