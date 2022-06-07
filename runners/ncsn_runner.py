@@ -3,6 +3,7 @@ import logging
 import imageio
 import math
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
@@ -47,7 +48,8 @@ from models import (ddpm_sampler,
 from models.ema import EMAHelper
 from models.fvd.fvd import get_fvd_feats, frechet_distance, load_i3d_pretrained
 from models.unet import UNet_SMLD, UNet_DDPM
-#import pdb; pdb.set_trace()
+
+# import pdb; pdb.set_trace()
 
 __all__ = ['NCSNRunner']
 
@@ -61,7 +63,7 @@ def count_parameters(model):
 
 
 def get_proc_mem():
-    return psutil.Process(os.getpid()).memory_info().rss /1024**3
+    return psutil.Process(os.getpid()).memory_info().rss / 1024 ** 3
 
 
 def get_GPU_mem():
@@ -70,7 +72,7 @@ def get_GPU_mem():
         mem = 0
         for i in range(num):
             mem_free, mem_total = torch.cuda.mem_get_info(i)
-            mem += (mem_total - mem_free)/1024**3
+            mem += (mem_total - mem_free) / 1024 ** 3
         return mem
     except:
         return 0
@@ -112,7 +114,7 @@ def conditioning_fn(config, X, num_frames_pred=0, prob_mask_cond=0.0, prob_mask_
     future = getattr(config.data, "num_frames_future", 0)
 
     # Frames to train on / sample
-    pred_frames = X[:, cond:cond+pred].reshape(len(X), -1, imsize, imsize)
+    pred_frames = X[:, cond:cond + pred].reshape(len(X), -1, imsize, imsize)
 
     # Condition (Past)
     cond_frames = X[:, :cond].reshape(len(X), -1, imsize, imsize)
@@ -120,7 +122,7 @@ def conditioning_fn(config, X, num_frames_pred=0, prob_mask_cond=0.0, prob_mask_
     if prob_mask_cond > 0.0:
         cond_mask = (torch.rand(X.shape[0], device=X.device) > prob_mask_cond)
         cond_frames = cond_mask.reshape(-1, 1, 1, 1) * cond_frames
-        cond_mask = cond_mask.to(torch.int32) # make 0,1
+        cond_mask = cond_mask.to(torch.int32)  # make 0,1
     else:
         cond_mask = None
 
@@ -128,10 +130,10 @@ def conditioning_fn(config, X, num_frames_pred=0, prob_mask_cond=0.0, prob_mask_
     if future > 0:
 
         if prob_mask_future == 1.0:
-            future_frames = torch.zeros(len(X), config.data.channels*future, imsize, imsize)
+            future_frames = torch.zeros(len(X), config.data.channels * future, imsize, imsize)
             # future_mask = torch.zeros(len(X), 1, 1, 1).to(torch.int32) # make 0,1
         else:
-            future_frames = X[:, cond+train:cond+train+future].reshape(len(X), -1, imsize, imsize)
+            future_frames = X[:, cond + train:cond + train + future].reshape(len(X), -1, imsize, imsize)
             if prob_mask_future > 0.0:
                 if getattr(config.data, "prob_mask_sync", False):
                     future_mask = cond_mask
@@ -144,11 +146,14 @@ def conditioning_fn(config, X, num_frames_pred=0, prob_mask_cond=0.0, prob_mask_
 
         cond_frames = torch.cat([cond_frames, future_frames], dim=1)
 
-    return pred_frames, cond_frames, cond_mask   # , future_mask
+    return pred_frames, cond_frames, cond_mask  # , future_mask
 
 
 def stretch_image(X, ch, imsize):
-    return X.reshape(len(X), -1, ch, imsize, imsize).permute(0, 2, 1, 4, 3).reshape(len(X), ch, -1, imsize).permute(0, 1, 3, 2)
+    return X.reshape(len(X), -1, ch, imsize, imsize).permute(0, 2, 1, 4, 3).reshape(len(X), ch, -1, imsize).permute(0,
+                                                                                                                    1,
+                                                                                                                    3,
+                                                                                                                    2)
 
 
 # Make and load model
@@ -178,21 +183,21 @@ def load_model(ckpt_path, device):
 
 
 def get_model(config):
-
     version = getattr(config.model, 'version', 'SMLD').upper()
     arch = getattr(config.model, 'arch', 'ncsn')
     depth = getattr(config.model, 'depth', 'deep')
 
     if arch == 'unetmore':
-        from models.better.ncsnpp_more import UNetMore_DDPM # This lets the code run on CPU when 'unetmore' is not used
-        return UNetMore_DDPM(config).to(config.device)#.to(memory_format=torch.channels_last).to(config.device)
+        from models.better.ncsnpp_more import UNetMore_DDPM  # This lets the code run on CPU when 'unetmore' is not used
+        return UNetMore_DDPM(config).to(config.device)  # .to(memory_format=torch.channels_last).to(config.device)
     elif arch in ['unetmore3d', 'unetmorepseudo3d']:
-        from models.better.ncsnpp_more import UNetMore_DDPM # This lets the code run on CPU when 'unetmore' is not used
+        from models.better.ncsnpp_more import UNetMore_DDPM  # This lets the code run on CPU when 'unetmore' is not used
         # return UNetMore_DDPM(config).to(memory_format=torch.channels_last_3d).to(config.device) # channels_last_3d doesn't work!
-        return UNetMore_DDPM(config).to(config.device)#.to(memory_format=torch.channels_last).to(config.device)
+        return UNetMore_DDPM(config).to(config.device)  # .to(memory_format=torch.channels_last).to(config.device)
 
     else:
         Exception("arch is not valid [ncsn, unet, unetmore, unetmore3d]")
+
 
 class NCSNRunner():
     def __init__(self, args, config, config_uncond):
@@ -206,24 +211,25 @@ class NCSNRunner():
 
     def get_mode(self):
         self.condf, self.condp = self.config.data.num_frames_cond, getattr(self.config.data, "prob_mask_cond", 0.0)
-        self.futrf, self.futrp = getattr(self.config.data, "num_frames_future", 0), getattr(self.config.data, "prob_mask_future", 0.0)
+        self.futrf, self.futrp = getattr(self.config.data, "num_frames_future", 0), getattr(self.config.data,
+                                                                                            "prob_mask_future", 0.0)
         self.prob_mask_sync = getattr(self.config.data, "prob_mask_sync", False)
         if not getattr(self.config.sampling, "ssim", False):
             if getattr(self.config.sampling, "fvd", False):
                 self.mode_pred, self.mode_interp, self.mode_gen = None, None, "three"
             else:
                 self.mode_pred, self.mode_interp, self.mode_gen = None, None, None
-        elif self.condp == 0.0 and self.futrf == 0:                                                   # (1) Prediction
+        elif self.condp == 0.0 and self.futrf == 0:  # (1) Prediction
             self.mode_pred, self.mode_interp, self.mode_gen = "one", None, None
-        elif self.condp == 0.0 and self.futrf > 0 and self.futrp == 0.0:                            # (1) Interpolation
+        elif self.condp == 0.0 and self.futrf > 0 and self.futrp == 0.0:  # (1) Interpolation
             self.mode_pred, self.mode_interp, self.mode_gen = None, "one", None
-        elif self.condp == 0.0 and self.futrf > 0 and self.futrp > 0.0:                             # (1) Interp + (2) Pred
+        elif self.condp == 0.0 and self.futrf > 0 and self.futrp > 0.0:  # (1) Interp + (2) Pred
             self.mode_pred, self.mode_interp, self.mode_gen = "two", "one", None
-        elif self.condp > 0.0 and self.futrf == 0:                                                  # (1) Pred + (3) Gen
+        elif self.condp > 0.0 and self.futrf == 0:  # (1) Pred + (3) Gen
             self.mode_pred, self.mode_interp, self.mode_gen = "one", None, "three"
         elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and not self.prob_mask_sync:  # (1) Interp + (2) Pred + (3) Gen
             self.mode_pred, self.mode_interp, self.mode_gen = "two", "one", "three"
-        elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and self.prob_mask_sync:      # (1) Interp + (3) Gen
+        elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and self.prob_mask_sync:  # (1) Interp + (3) Gen
             self.mode_pred, self.mode_interp, self.mode_gen = None, "one", "three"
 
     def get_time(self):
@@ -242,16 +248,20 @@ class NCSNRunner():
             time_hr = time_day_hr[0]
         # Hr
         hrs = time_hr.split(":")
-        return float(days)*24 + float(hrs[0]) + float(hrs[1])/60 + float(hrs[2])/3600
+        return float(days) * 24 + float(hrs[0]) + float(hrs[1]) / 60 + float(hrs[2]) / 3600
 
     def train(self):
         # If FFHQ tfrecord, reset dataloader
         if self.config.data.dataset.upper() == 'FFHQ':
-            dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.training.batch_size, self.config.data.image_size)
-            test_loader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.training.batch_size, self.config.data.image_size)
+            dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.training.batch_size,
+                                                  self.config.data.image_size)
+            test_loader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.training.batch_size,
+                                                   self.config.data.image_size)
             test_iter = iter(test_loader)
         else:
-            dataset, test_dataset = get_dataset(self.args.data_path, self.config, video_frames_pred=self.config.data.num_frames, start_at=self.args.start_at)
+            dataset, test_dataset = get_dataset(self.args.data_path, self.config,
+                                                video_frames_pred=self.config.data.num_frames,
+                                                start_at=self.args.start_at)
             dataloader = DataLoader(dataset, batch_size=self.config.training.batch_size, shuffle=True,
                                     num_workers=self.config.data.num_workers)
             test_loader = DataLoader(test_dataset, batch_size=self.config.training.batch_size, shuffle=True,
@@ -295,7 +305,8 @@ class NCSNRunner():
             step = states[3]
             if self.config.model.ema:
                 ema_helper.load_state_dict(states[4])
-            logging.info(f"Resuming training from checkpoint.pt in {self.args.log_path} at epoch {start_epoch}, step {step}.")
+            logging.info(
+                f"Resuming training from checkpoint.pt in {self.args.log_path} at epoch {start_epoch}, step {step}.")
 
         if self.config.training.log_all_sigmas:
             ### Commented out training time logging to save time.
@@ -349,15 +360,18 @@ class NCSNRunner():
 
         # Initial samples
         n_init_samples = min(36, self.config.training.batch_size)
-        init_samples_shape = (n_init_samples, self.config.data.channels*self.config.data.num_frames, self.config.data.image_size, self.config.data.image_size)
+        init_samples_shape = (
+        n_init_samples, self.config.data.channels * self.config.data.num_frames, self.config.data.image_size,
+        self.config.data.image_size)
         if self.version == "SMLD":
             init_samples = torch.rand(init_samples_shape, device=self.config.device)
             init_samples = data_transform(self.config, init_samples)
         elif self.version == "DDPM" or self.version == "DDIM" or self.version == "FPNDM":
             if getattr(self.config.model, 'gamma', False):
                 used_k, used_theta = net.k_cum[0], net.theta_t[0]
-                z = Gamma(torch.full(init_samples_shape, used_k), torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
-                init_samples = z - used_k*used_theta # we don't scale here
+                z = Gamma(torch.full(init_samples_shape, used_k),
+                          torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
+                init_samples = z - used_k * used_theta  # we don't scale here
             else:
                 init_samples = torch.randn(init_samples_shape, device=self.config.device)
 
@@ -370,7 +384,6 @@ class NCSNRunner():
         early_end = False
         for epoch in range(start_epoch, self.config.training.n_epochs):
             for batch, (X, actions) in enumerate(dataloader):
-
                 optimizer.zero_grad()
                 lr = warmup_lr(optimizer, step, getattr(self.config.optim, 'warmup', 0), self.config.optim.lr)
                 scorenet.train()
@@ -382,12 +395,14 @@ class NCSNRunner():
                 X = data_transform(self.config, X)
                 X, cond, cond_mask = conditioning_fn(self.config, X, num_frames_pred=self.config.data.num_frames,
                                                      prob_mask_cond=getattr(self.config.data, 'prob_mask_cond', 0.0),
-                                                     prob_mask_future=getattr(self.config.data, 'prob_mask_future', 0.0),
+                                                     prob_mask_future=getattr(self.config.data, 'prob_mask_future',
+                                                                              0.0),
                                                      conditional=conditional)
 
                 # Loss
                 itr_start = time.time()
-                loss = anneal_dsm_score_estimation(scorenet, X, labels=None, cond=cond, cond_mask=cond_mask, actions=actions,
+                loss = anneal_dsm_score_estimation(scorenet, X, labels=None, cond=cond, cond_mask=cond_mask,
+                                                   actions=actions,
                                                    loss_type=getattr(self.config.training, 'loss_type', 'a'),
                                                    gamma=getattr(self.config.model, 'gamma', False),
                                                    L1=getattr(self.config.training, 'L1', False), hook=hook,
@@ -397,23 +412,27 @@ class NCSNRunner():
 
                 # Optimize
                 loss.backward()
-                grad_norm = torch.nn.utils.clip_grad_norm_(scorenet.parameters(), getattr(self.config.optim, 'grad_clip', np.inf))
+                grad_norm = torch.nn.utils.clip_grad_norm_(scorenet.parameters(),
+                                                           getattr(self.config.optim, 'grad_clip', np.inf))
                 optimizer.step()
 
                 # Training time
                 itr_time = time.time() - itr_start
                 self.total_train_time += itr_time
-                self.time_train.update(self.convert_time_stamp_to_hrs(str(datetime.timedelta(seconds=self.total_train_time))) + self.time_train_prev)
+                self.time_train.update(self.convert_time_stamp_to_hrs(
+                    str(datetime.timedelta(seconds=self.total_train_time))) + self.time_train_prev)
 
                 # Record
                 self.losses_train.update(loss.item(), step)
-                self.epochs.update(epoch + (batch + 1)/len(dataloader))
+                self.epochs.update(epoch + (batch + 1) / len(dataloader))
                 self.lr_meter.update(lr)
                 self.grad_norm.update(grad_norm.item())
                 if step == 1 or step % getattr(self.config.training, "log_freq", 1) == 0:
-                    logging.info("elapsed: {}, train time: {:.04f}, mem: {:.03f}GB, GPUmem: {:.03f}GB, step: {}, lr: {:.06f}, grad: {:.04f}, loss: {:.04f}".format(
-                        str(datetime.timedelta(seconds=(time.time() - self.start_time)) + datetime.timedelta(seconds=self.time_elapsed_prev*3600))[:-3],
-                        self.time_train.val, get_proc_mem(), get_GPU_mem(), step, lr, grad_norm, loss.item()))
+                    logging.info(
+                        "elapsed: {}, train time: {:.04f}, mem: {:.03f}GB, GPUmem: {:.03f}GB, step: {}, lr: {:.06f}, grad: {:.04f}, loss: {:.04f}".format(
+                            str(datetime.timedelta(seconds=(time.time() - self.start_time)) + datetime.timedelta(
+                                seconds=self.time_elapsed_prev * 3600))[:-3],
+                            self.time_train.val, get_proc_mem(), get_GPU_mem(), step, lr, grad_norm, loss.item()))
 
                 if self.config.model.ema:
                     ema_helper.update(scorenet)
@@ -441,7 +460,8 @@ class NCSNRunner():
 
                 test_scorenet = None
                 # Get test_scorenet
-                if step == 1 or step % self.config.training.val_freq == 0 or (step % self.config.training.snapshot_freq == 0 or step % self.config.training.sample_freq == 0) and self.config.training.snapshot_sampling:
+                if step == 1 or step % self.config.training.val_freq == 0 or (
+                        step % self.config.training.snapshot_freq == 0 or step % self.config.training.sample_freq == 0) and self.config.training.snapshot_sampling:
 
                     if self.config.model.ema:
                         test_scorenet = ema_helper.ema_copy(scorenet)
@@ -461,22 +481,32 @@ class NCSNRunner():
                     test_X = test_X.to(self.config.device)
                     test_X = data_transform(self.config, test_X)
 
-                    test_X, test_cond, test_cond_mask = conditioning_fn(self.config, test_X, num_frames_pred=self.config.data.num_frames,
-                                                                        prob_mask_cond=getattr(self.config.data, 'prob_mask_cond', 0.0),
-                                                                        prob_mask_future=getattr(self.config.data, 'prob_mask_future', 0.0),
+                    test_X, test_cond, test_cond_mask = conditioning_fn(self.config, test_X,
+                                                                        num_frames_pred=self.config.data.num_frames,
+                                                                        prob_mask_cond=getattr(self.config.data,
+                                                                                               'prob_mask_cond', 0.0),
+                                                                        prob_mask_future=getattr(self.config.data,
+                                                                                                 'prob_mask_future',
+                                                                                                 0.0),
                                                                         conditional=conditional)
 
                     with torch.no_grad():
-                        test_dsm_loss = anneal_dsm_score_estimation(test_scorenet, test_X, labels=None, cond=test_cond, cond_mask=test_cond_mask,
-                                                                    loss_type=getattr(self.config.training, 'loss_type', 'a'),
+                        test_dsm_loss = anneal_dsm_score_estimation(test_scorenet, test_X, labels=None, cond=test_cond,
+                                                                    cond_mask=test_cond_mask,
+                                                                    actions=actions,
+                                                                    loss_type=getattr(self.config.training, 'loss_type',
+                                                                                      'a'),
                                                                     gamma=getattr(self.config.model, 'gamma', False),
-                                                                    L1=getattr(self.config.training, 'L1', False), hook=test_hook,
-                                                                    all_frames=getattr(self.config.model, 'output_all_frames', False))
+                                                                    L1=getattr(self.config.training, 'L1', False),
+                                                                    hook=test_hook,
+                                                                    all_frames=getattr(self.config.model,
+                                                                                       'output_all_frames', False))
                     # tb_logger.add_scalar('test_loss', test_dsm_loss, global_step=step)
                     # test_tb_hook()
                     self.losses_test.update(test_dsm_loss.item(), step)
                     logging.info("elapsed: {}, step: {}, mem: {:.03f}GB, GPUmem: {:.03f}GB, test_loss: {:.04f}".format(
-                        str(datetime.timedelta(seconds=(time.time() - self.start_time)) + datetime.timedelta(seconds=self.time_elapsed_prev*3600))[:-3],
+                        str(datetime.timedelta(seconds=(time.time() - self.start_time)) + datetime.timedelta(
+                            seconds=self.time_elapsed_prev * 3600))[:-3],
                         step, get_proc_mem(), get_GPU_mem(), test_dsm_loss.item()))
 
                     # Plot graphs
@@ -488,12 +518,13 @@ class NCSNRunner():
                     plot_graphs_process.start()
 
                 # Sample from model
-                if (step % self.config.training.snapshot_freq == 0 or step % self.config.training.sample_freq == 0) and self.config.training.snapshot_sampling:
+                if (
+                        step % self.config.training.snapshot_freq == 0 or step % self.config.training.sample_freq == 0) and self.config.training.snapshot_sampling:
 
                     logging.info(f"Saving images in {self.args.log_sample_path}")
 
                     # Calc video metrics with max_data_iter=1
-                    if conditional and step % self.config.training.snapshot_freq == 0 and self.config.training.snapshot_sampling: # only at snapshot_freq, not at sample_freq
+                    if conditional and step % self.config.training.snapshot_freq == 0 and self.config.training.snapshot_sampling:  # only at snapshot_freq, not at sample_freq
 
                         vid_metrics = self.video_gen(scorenet=test_scorenet, ckpt=step, train=True)
 
@@ -540,21 +571,21 @@ class NCSNRunner():
 
                         # Show best results for every metric
 
-                        if self.condp == 0.0 and self.futrf == 0:                           # (1) Prediction
+                        if self.condp == 0.0 and self.futrf == 0:  # (1) Prediction
                             self.mses_pred, self.psnrs_pred, self.ssims_pred, self.lpipss_pred, self.fvds_pred = self.mses, self.psnrs, self.ssims, self.lpipss, self.fvds
                             self.best_mse_pred, self.best_psnr_pred, self.best_ssim_pred, self.best_lpips_pred, self.best_fvd_pred, self.calc_fvd_pred = self.best_mse, self.best_psnr, self.best_ssim, self.best_lpips, self.best_fvd, self.calc_fvd1
-                        elif self.condp == 0.0 and self.futrf > 0 and self.futrp == 0.0:    # (1) Interpolation
+                        elif self.condp == 0.0 and self.futrf > 0 and self.futrp == 0.0:  # (1) Interpolation
                             self.mses_interp, self.psnrs_interp, self.ssims_interp, self.lpipss_interp, self.fvds_interp = self.mses, self.psnrs, self.ssims, self.lpipss, self.fvds
                             self.best_mse_interp, self.best_psnr_interp, self.best_ssim_interp, self.best_lpips_interp, self.best_fvd_interp, self.calc_fvd_interp = self.best_mse, self.best_psnr, self.best_ssim, self.best_lpips, self.best_fvd, self.calc_fvd1
-                        elif self.condp == 0.0 and self.futrf > 0 and self.futrp > 0.0:     # (1) Interp + (2) Pred
+                        elif self.condp == 0.0 and self.futrf > 0 and self.futrp > 0.0:  # (1) Interp + (2) Pred
                             self.mses_interp, self.psnrs_interp, self.ssims_interp, self.lpipss_interp, self.fvds_interp = self.mses, self.psnrs, self.ssims, self.lpipss, self.fvds
                             self.mses_pred, self.psnrs_pred, self.ssims_pred, self.lpipss_pred, self.fvds_pred = self.mses2, self.psnrs2, self.ssims2, self.lpipss2, self.fvds2
                             self.best_mse_interp, self.best_psnr_interp, self.best_ssim_interp, self.best_lpips_interp, self.best_fvd_interp, self.calc_fvd_interp = self.best_mse, self.best_psnr, self.best_ssim, self.best_lpips, self.best_fvd, self.calc_fvd1
                             self.best_mse_pred, self.best_psnr_pred, self.best_ssim_pred, self.best_lpips_pred, self.best_fvd_pred, self.calc_fvd_pred = self.best_mse2, self.best_psnr2, self.best_ssim2, self.best_lpips2, self.best_fvd2, self.calc_fvd2
-                        elif self.condp > 0.0 and self.futrf == 0:                         # (1) Pred + (3) Gen
+                        elif self.condp > 0.0 and self.futrf == 0:  # (1) Pred + (3) Gen
                             self.mses_pred, self.psnrs_pred, self.ssims_pred, self.lpipss_pred, self.fvds_pred = self.mses, self.psnrs, self.ssims, self.lpipss, self.fvds
                             self.best_mse_pred, self.best_psnr_pred, self.best_ssim_pred, self.best_lpips_pred, self.best_fvd_pred, self.calc_fvd_pred = self.best_mse, self.best_psnr, self.best_ssim, self.best_lpips, self.best_fvd, self.calc_fvd1
-                        elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and not self.prob_mask_sync:     # (1) Interp + (2) Pred + (3) Gen
+                        elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and not self.prob_mask_sync:  # (1) Interp + (2) Pred + (3) Gen
                             self.mses_interp, self.psnrs_interp, self.ssims_interp, self.lpipss_interp, self.fvds_interp = self.mses, self.psnrs, self.ssims, self.lpipss, self.fvds
                             self.mses_pred, self.psnrs_pred, self.ssims_pred, self.lpipss_pred, self.fvds_pred = self.mses2, self.psnrs2, self.ssims2, self.lpipss2, self.fvds2
                             self.best_mse_interp, self.best_psnr_interp, self.best_ssim_interp, self.best_lpips_interp, self.best_fvd_interp, self.calc_fvd_interp = self.best_mse, self.best_psnr, self.best_ssim, self.best_lpips, self.best_fvd, self.calc_fvd1
@@ -563,7 +594,9 @@ class NCSNRunner():
                             self.mses_interp, self.psnrs_interp, self.ssims_interp, self.lpipss_interp, self.fvds_interp = self.mses, self.psnrs, self.ssims, self.lpipss, self.fvds
                             self.best_mse_interp, self.best_psnr_interp, self.best_ssim_interp, self.best_lpips_interp, self.best_fvd_interp, self.calc_fvd_interp = self.best_mse, self.best_psnr, self.best_ssim, self.best_lpips, self.best_fvd, self.calc_fvd1
 
-                        format_p = lambda dd : ", ".join([f"{k}:{v:.4f}" if k != 'ckpt' and k != 'preds_per_test' else f"{k}:{v:7d}" if k == 'ckpt' else f"{k}:{v:3d}" for k, v in dd.items()])
+                        format_p = lambda dd: ", ".join([
+                                                            f"{k}:{v:.4f}" if k != 'ckpt' and k != 'preds_per_test' else f"{k}:{v:7d}" if k == 'ckpt' else f"{k}:{v:3d}"
+                                                            for k, v in dd.items()])
                         if self.mode_pred is not None:
                             logging.info(f"PRED: {self.mode_pred}")
                             logging.info(f"Best-MSE   pred - {format_p(self.best_mse_pred)}")
@@ -601,9 +634,14 @@ class NCSNRunner():
                             test_X, test_y = next(test_iter)
                         test_X = test_X[:len(init_samples)].to(self.config.device)
                         test_X = data_transform(self.config, test_X)
-                        test_X, test_cond, test_cond_mask = conditioning_fn(self.config, test_X, num_frames_pred=self.config.data.num_frames,
-                                                                            prob_mask_cond=getattr(self.config.data, 'prob_mask_cond', 0.0),
-                                                                            prob_mask_future=getattr(self.config.data, 'prob_mask_future', 0.0),
+                        test_X, test_cond, test_cond_mask = conditioning_fn(self.config, test_X,
+                                                                            num_frames_pred=self.config.data.num_frames,
+                                                                            prob_mask_cond=getattr(self.config.data,
+                                                                                                   'prob_mask_cond',
+                                                                                                   0.0),
+                                                                            prob_mask_future=getattr(self.config.data,
+                                                                                                     'prob_mask_future',
+                                                                                                     0.0),
                                                                             conditional=conditional)
 
                     all_samples = sampler(init_samples, test_scorenet, cond=test_cond, cond_mask=test_cond_mask,
@@ -612,8 +650,10 @@ class NCSNRunner():
                                           final_only=True, denoise=self.config.sampling.denoise,
                                           subsample_steps=getattr(self.config.sampling, 'subsample', None),
                                           clip_before=getattr(self.config.sampling, 'clip_before', True),
-                                          verbose=False, log=False, gamma=getattr(self.config.model, 'gamma', False)).to('cpu')
-                    pred = all_samples[-1].reshape(all_samples[-1].shape[0], self.config.data.channels*self.config.data.num_frames,
+                                          verbose=False, log=False,
+                                          gamma=getattr(self.config.model, 'gamma', False)).to('cpu')
+                    pred = all_samples[-1].reshape(all_samples[-1].shape[0],
+                                                   self.config.data.channels * self.config.data.num_frames,
                                                    self.config.data.image_size, self.config.data.image_size)
                     pred = inverse_data_transform(self.config, pred)
 
@@ -622,48 +662,58 @@ class NCSNRunner():
                         reali = inverse_data_transform(self.config, test_X.to('cpu'))
                         condi = inverse_data_transform(self.config, test_cond.to('cpu'))
                         if future > 0:
-                            condi, futri = condi[:, :self.config.data.num_frames_cond*self.config.data.channels], condi[:, self.config.data.num_frames_cond*self.config.data.channels:]
+                            condi, futri = condi[:,
+                                           :self.config.data.num_frames_cond * self.config.data.channels], condi[:,
+                                                                                                           self.config.data.num_frames_cond * self.config.data.channels:]
 
                         # Save gif
                         gif_frames = []
-                        for t in range(condi.shape[1]//self.config.data.channels):
-                            cond_t = condi[:, t*self.config.data.channels:(t+1)*self.config.data.channels]     # BCHW
-                            frame = torch.cat([cond_t, 0.5*torch.ones(*cond_t.shape[:-1], 2), cond_t], dim=-1)
+                        for t in range(condi.shape[1] // self.config.data.channels):
+                            cond_t = condi[:, t * self.config.data.channels:(t + 1) * self.config.data.channels]  # BCHW
+                            frame = torch.cat([cond_t, 0.5 * torch.ones(*cond_t.shape[:-1], 2), cond_t], dim=-1)
                             frame = frame.permute(0, 2, 3, 1).numpy()
-                            frame = np.stack([putText(f.copy(), f"{t+1:2d}p", (4, 15), 0, 0.5, (1,1,1), 1) for f in frame])
-                            nrow = ceil(np.sqrt(2*condi.shape[0])/2)
-                            gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6, pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
-                            gif_frames.append((gif_frame*255).astype('uint8'))
+                            frame = np.stack(
+                                [putText(f.copy(), f"{t + 1:2d}p", (4, 15), 0, 0.5, (1, 1, 1), 1) for f in frame])
+                            nrow = ceil(np.sqrt(2 * condi.shape[0]) / 2)
+                            gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6,
+                                                  pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
+                            gif_frames.append((gif_frame * 255).astype('uint8'))
                             if t == 0:
-                                gif_frames.append((gif_frame*255).astype('uint8'))
+                                gif_frames.append((gif_frame * 255).astype('uint8'))
                             del frame, gif_frame
-                        for t in range(pred.shape[1]//self.config.data.channels):
-                            real_t = reali[:, t*self.config.data.channels:(t+1)*self.config.data.channels]     # BCHW
-                            pred_t = pred[:, t*self.config.data.channels:(t+1)*self.config.data.channels]     # BCHW
-                            frame = torch.cat([real_t, 0.5*torch.ones(*pred_t.shape[:-1], 2), pred_t], dim=-1)
-                            frame = frame.permute(0, 2, 3, 1).numpy()   # BHWC
-                            frame = np.stack([putText(f.copy(), f"{t+1:02d}", (4, 15), 0, 0.5, (1,1,1), 1) for f in frame])
-                            nrow = ceil(np.sqrt(2*pred.shape[0])/2)
-                            gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6, pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
-                            gif_frames.append((gif_frame*255).astype('uint8'))
-                            if t == pred.shape[1]//self.config.data.channels - 1 and future == 0:
-                                gif_frames.append((gif_frame*255).astype('uint8'))
+                        for t in range(pred.shape[1] // self.config.data.channels):
+                            real_t = reali[:, t * self.config.data.channels:(t + 1) * self.config.data.channels]  # BCHW
+                            pred_t = pred[:, t * self.config.data.channels:(t + 1) * self.config.data.channels]  # BCHW
+                            frame = torch.cat([real_t, 0.5 * torch.ones(*pred_t.shape[:-1], 2), pred_t], dim=-1)
+                            frame = frame.permute(0, 2, 3, 1).numpy()  # BHWC
+                            frame = np.stack(
+                                [putText(f.copy(), f"{t + 1:02d}", (4, 15), 0, 0.5, (1, 1, 1), 1) for f in frame])
+                            nrow = ceil(np.sqrt(2 * pred.shape[0]) / 2)
+                            gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6,
+                                                  pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
+                            gif_frames.append((gif_frame * 255).astype('uint8'))
+                            if t == pred.shape[1] // self.config.data.channels - 1 and future == 0:
+                                gif_frames.append((gif_frame * 255).astype('uint8'))
                             del frame, gif_frame
                         if future > 0:
-                            for t in range(futri.shape[1]//self.config.data.channels):
-                                futr_t = futri[:, t*self.config.data.channels:(t+1)*self.config.data.channels]     # BCHW
-                                frame = torch.cat([futr_t, 0.5*torch.ones(*futr_t.shape[:-1], 2), futr_t], dim=-1)
+                            for t in range(futri.shape[1] // self.config.data.channels):
+                                futr_t = futri[:,
+                                         t * self.config.data.channels:(t + 1) * self.config.data.channels]  # BCHW
+                                frame = torch.cat([futr_t, 0.5 * torch.ones(*futr_t.shape[:-1], 2), futr_t], dim=-1)
                                 frame = frame.permute(0, 2, 3, 1).numpy()
-                                frame = np.stack([putText(f.copy(), f"{t+1:2d}f", (4, 15), 0, 0.5, (1,1,1), 1) for f in frame])
-                                nrow = ceil(np.sqrt(2*condi.shape[0])/2)
-                                gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6, pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
-                                gif_frames.append((gif_frame*255).astype('uint8'))
-                                if t == futri.shape[1]//self.config.data.channels - 1:
-                                    gif_frames.append((gif_frame*255).astype('uint8'))
+                                frame = np.stack(
+                                    [putText(f.copy(), f"{t + 1:2d}f", (4, 15), 0, 0.5, (1, 1, 1), 1) for f in frame])
+                                nrow = ceil(np.sqrt(2 * condi.shape[0]) / 2)
+                                gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6,
+                                                      pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
+                                gif_frames.append((gif_frame * 255).astype('uint8'))
+                                if t == futri.shape[1] // self.config.data.channels - 1:
+                                    gif_frames.append((gif_frame * 255).astype('uint8'))
                                 del frame, gif_frame
 
                         # Save gif
-                        imageio.mimwrite(os.path.join(self.args.log_sample_path, f"video_grid_{step}.gif"), gif_frames, fps=4)
+                        imageio.mimwrite(os.path.join(self.args.log_sample_path, f"video_grid_{step}.gif"), gif_frames,
+                                         fps=4)
                         del gif_frames
 
                         # Stretch out multiple frames horizontally
@@ -673,19 +723,25 @@ class NCSNRunner():
                         if future > 0:
                             futri = stretch_image(futri, self.config.data.channels, self.config.data.image_size)
 
-                        padding = 0.5 * torch.ones(len(reali), self.config.data.channels, self.config.data.image_size, 4)
+                        padding = 0.5 * torch.ones(len(reali), self.config.data.channels, self.config.data.image_size,
+                                                   4)
                         if self.config.data.channels == 1:
                             data = torch.cat([condi, padding, reali, padding, pred], dim=-1)
                             if future > 0:
                                 data = torch.cat([data, padding, futri], dim=-1)
                         else:
-                            padding_red, padding_green = torch.ones(len(reali), self.config.data.channels, self.config.data.image_size, 4), torch.ones(len(reali), self.config.data.channels, self.config.data.image_size, 4)
+                            padding_red, padding_green = torch.ones(len(reali), self.config.data.channels,
+                                                                    self.config.data.image_size, 4), torch.ones(
+                                len(reali), self.config.data.channels, self.config.data.image_size, 4)
                             padding_red[:, [1, 2]], padding_green[:, [0, 2]] = 0, 0
-                            data = torch.cat([condi, padding_green, reali, padding_green, padding_red, pred, padding_red], dim=-1)
+                            data = torch.cat(
+                                [condi, padding_green, reali, padding_green, padding_red, pred, padding_red], dim=-1)
                             if future > 0:
                                 data = torch.cat([data, futri], dim=-1)
 
-                        nrow = ceil(np.sqrt((self.config.data.num_frames_cond+self.config.data.num_frames*2+future)*n_init_samples)/(self.config.data.num_frames_cond+self.config.data.num_frames*2+future))
+                        nrow = ceil(np.sqrt((
+                                                        self.config.data.num_frames_cond + self.config.data.num_frames * 2 + future) * n_init_samples) / (
+                                                self.config.data.num_frames_cond + self.config.data.num_frames * 2 + future))
                         image_grid = make_grid(data, nrow=nrow, padding=6, pad_value=0.5)
 
                     else:
@@ -701,7 +757,8 @@ class NCSNRunner():
 
                 del test_scorenet
 
-                self.time_elapsed.update(self.convert_time_stamp_to_hrs(str(datetime.timedelta(seconds=(time.time() - self.start_time)))) + self.time_elapsed_prev)
+                self.time_elapsed.update(self.convert_time_stamp_to_hrs(
+                    str(datetime.timedelta(seconds=(time.time() - self.start_time)))) + self.time_elapsed_prev)
 
                 # Save meters
                 if step == 1 or step % self.config.training.val_freq == 0 or step % 1000 == 0 or step % self.config.training.snapshot_freq == 0:
@@ -712,8 +769,10 @@ class NCSNRunner():
 
             # If FFHQ tfrecord, reset dataloader
             if self.config.data.dataset.upper() == 'FFHQ':
-                dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.training.batch_size, self.config.data.image_size)
-                test_loader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.training.batch_size, self.config.data.image_size)
+                dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.training.batch_size,
+                                                      self.config.data.image_size)
+                test_loader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.training.batch_size,
+                                                       self.config.data.image_size)
                 test_iter = iter(test_loader)
 
         # Save model at the very end
@@ -803,7 +862,8 @@ class NCSNRunner():
         plt.plot(mses.steps, mses.vals)
         if best_mse['ckpt'] > -1:
             plt.scatter(best_mse['ckpt'], mses.vals[mses.steps.index(best_mse['ckpt'])], color='k')
-            plt.text(best_mse['ckpt'], mses.vals[mses.steps.index(best_mse['ckpt'])], f"{mses.vals[mses.steps.index(best_mse['ckpt'])]:.04f}\n{best_mse['ckpt']}", c='r')
+            plt.text(best_mse['ckpt'], mses.vals[mses.steps.index(best_mse['ckpt'])],
+                     f"{mses.vals[mses.steps.index(best_mse['ckpt'])]:.04f}\n{best_mse['ckpt']}", c='r')
         plt.xlabel("Steps")
         plt.ylabel("MSE")
         plt.grid(True)
@@ -818,7 +878,8 @@ class NCSNRunner():
         plt.plot(mses.steps, psnrs.vals)
         if best_psnr['ckpt'] > -1:
             plt.scatter(best_psnr['ckpt'], psnrs.vals[mses.steps.index(best_psnr['ckpt'])], color='k')
-            plt.text(best_psnr['ckpt'], psnrs.vals[mses.steps.index(best_psnr['ckpt'])], f"{psnrs.vals[mses.steps.index(best_psnr['ckpt'])]:.04f}\n{best_psnr['ckpt']}", c='r')
+            plt.text(best_psnr['ckpt'], psnrs.vals[mses.steps.index(best_psnr['ckpt'])],
+                     f"{psnrs.vals[mses.steps.index(best_psnr['ckpt'])]:.04f}\n{best_psnr['ckpt']}", c='r')
         plt.xlabel("Steps")
         plt.ylabel("PSNR")
         plt.grid(True)
@@ -833,7 +894,8 @@ class NCSNRunner():
         plt.plot(mses.steps, ssims.vals)
         if best_ssim['ckpt'] > -1:
             plt.scatter(best_ssim['ckpt'], ssims.vals[mses.steps.index(best_ssim['ckpt'])], color='k')
-            plt.text(best_ssim['ckpt'], ssims.vals[mses.steps.index(best_ssim['ckpt'])], f"{ssims.vals[mses.steps.index(best_ssim['ckpt'])]:.04f}\n{best_ssim['ckpt']}", c='r')
+            plt.text(best_ssim['ckpt'], ssims.vals[mses.steps.index(best_ssim['ckpt'])],
+                     f"{ssims.vals[mses.steps.index(best_ssim['ckpt'])]:.04f}\n{best_ssim['ckpt']}", c='r')
         plt.xlabel("Steps")
         plt.ylabel("SSIM")
         plt.grid(True)
@@ -848,7 +910,8 @@ class NCSNRunner():
         plt.plot(mses.steps, lpipss.vals)
         if best_lpips['ckpt'] > -1:
             plt.scatter(best_lpips['ckpt'], lpipss.vals[mses.steps.index(best_lpips['ckpt'])], color='k')
-            plt.text(best_lpips['ckpt'], lpipss.vals[mses.steps.index(best_lpips['ckpt'])], f"{lpipss.vals[mses.steps.index(best_lpips['ckpt'])]:.04f}\n{best_lpips['ckpt']}", c='r')
+            plt.text(best_lpips['ckpt'], lpipss.vals[mses.steps.index(best_lpips['ckpt'])],
+                     f"{lpipss.vals[mses.steps.index(best_lpips['ckpt'])]:.04f}\n{best_lpips['ckpt']}", c='r')
         plt.xlabel("Steps")
         plt.ylabel("LPIPS")
         plt.grid(True)
@@ -864,7 +927,8 @@ class NCSNRunner():
             plt.plot(mses.steps, fvds.vals)
             if best_fvd['ckpt'] > -1:
                 plt.scatter(best_fvd['ckpt'], fvds.vals[mses.steps.index(best_fvd['ckpt'])], color='k')
-                plt.text(best_fvd['ckpt'], fvds.vals[mses.steps.index(best_fvd['ckpt'])], f"{fvds.vals[mses.steps.index(best_fvd['ckpt'])]:.04f}\n{best_fvd['ckpt']}", c='r')
+                plt.text(best_fvd['ckpt'], fvds.vals[mses.steps.index(best_fvd['ckpt'])],
+                         f"{fvds.vals[mses.steps.index(best_fvd['ckpt'])]:.04f}\n{best_fvd['ckpt']}", c='r')
             plt.xlabel("Steps")
             plt.ylabel("FVD")
             plt.grid(True)
@@ -880,19 +944,26 @@ class NCSNRunner():
         # Pred
         if self.mode_pred is not None:
             self.plot_video_graphs_single("pred",
-                                          self.mses_pred, self.psnrs_pred, self.ssims_pred, self.lpipss_pred, self.fvds_pred, self.calc_fvd_pred,
-                                          self.best_mse_pred, self.best_psnr_pred, self.best_ssim_pred, self.best_lpips_pred, self.best_fvd_pred)
+                                          self.mses_pred, self.psnrs_pred, self.ssims_pred, self.lpipss_pred,
+                                          self.fvds_pred, self.calc_fvd_pred,
+                                          self.best_mse_pred, self.best_psnr_pred, self.best_ssim_pred,
+                                          self.best_lpips_pred, self.best_fvd_pred)
         # Interp
         if self.mode_interp is not None:
             self.plot_video_graphs_single("interp",
-                                          self.mses_interp, self.psnrs_interp, self.ssims_interp, self.lpipss_interp, self.fvds_interp, self.calc_fvd_interp,
-                                          self.best_mse_interp, self.best_psnr_interp, self.best_ssim_interp, self.best_lpips_interp, self.best_fvd_interp)
+                                          self.mses_interp, self.psnrs_interp, self.ssims_interp, self.lpipss_interp,
+                                          self.fvds_interp, self.calc_fvd_interp,
+                                          self.best_mse_interp, self.best_psnr_interp, self.best_ssim_interp,
+                                          self.best_lpips_interp, self.best_fvd_interp)
         # Gen
         if self.mode_gen is not None and self.calc_fvd3:
             plt.plot(self.fvds3.steps, self.fvds3.vals)
             if self.best_fvd3['ckpt'] > -1:
-                plt.scatter(self.best_fvd3['ckpt'], self.fvds3.vals[self.fvds3.steps.index(self.best_fvd3['ckpt'])], color='k')
-                plt.text(self.best_fvd3['ckpt'], self.fvds3.vals[self.fvds3.steps.index(self.best_fvd3['ckpt'])], f"{self.fvds3.vals[self.fvds3.steps.index(self.best_fvd3['ckpt'])]:.04f}\n{self.best_fvd3['ckpt']}", c='r')
+                plt.scatter(self.best_fvd3['ckpt'], self.fvds3.vals[self.fvds3.steps.index(self.best_fvd3['ckpt'])],
+                            color='k')
+                plt.text(self.best_fvd3['ckpt'], self.fvds3.vals[self.fvds3.steps.index(self.best_fvd3['ckpt'])],
+                         f"{self.fvds3.vals[self.fvds3.steps.index(self.best_fvd3['ckpt'])]:.04f}\n{self.best_fvd3['ckpt']}",
+                         c='r')
             plt.xlabel("Steps")
             plt.ylabel("FVD")
             plt.grid(True)
@@ -937,11 +1008,14 @@ class NCSNRunner():
 
         # If FFHQ tfrecord, reset dataloader
         if self.config.data.dataset.upper() == 'FFHQ':
-            dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size, self.config.data.image_size)
+            dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size,
+                                                  self.config.data.image_size)
         else:
-            dataset_train, dataset_test = get_dataset(self.args.data_path, self.config, video_frames_pred=self.config.data.num_frames)
+            dataset_train, dataset_test = get_dataset(self.args.data_path, self.config,
+                                                      video_frames_pred=self.config.data.num_frames)
             dataset = dataset_train if getattr(self.config.sampling, "train", False) else dataset_test
-            dataloader = DataLoader(dataset, batch_size=self.config.sampling.batch_size, shuffle=True, num_workers=self.config.data.num_workers)
+            dataloader = DataLoader(dataset, batch_size=self.config.sampling.batch_size, shuffle=True,
+                                    num_workers=self.config.data.num_workers)
 
         scorenet.eval()
 
@@ -960,11 +1034,13 @@ class NCSNRunner():
                 refer_images, _ = next(data_iter)
                 refer_images = refer_images.to(self.config.device)
                 refer_images = data_transform(self.config, refer_images)
-                refer_images, cond, _ = conditioning_fn(self.config, refer_images, num_frames_pred=self.config.data.num_frames, conditional=conditional)
+                refer_images, cond, _ = conditioning_fn(self.config, refer_images,
+                                                        num_frames_pred=self.config.data.num_frames,
+                                                        conditional=conditional)
                 width = ceil(np.sqrt(self.config.sampling.batch_size))
 
                 # init_samples
-                init_samples_shape = (width, width, self.config.data.channels*self.config.data.num_frames,
+                init_samples_shape = (width, width, self.config.data.channels * self.config.data.num_frames,
                                       self.config.data.image_size, self.config.data.image_size)
                 if self.version == "SMLD":
                     init_samples = torch.rand(init_samples_shape, device=self.config.device)
@@ -972,8 +1048,9 @@ class NCSNRunner():
                 elif self.version == "DDPM" or self.version == "DDIM" or self.version == "FPNDM":
                     if getattr(self.config.model, 'gamma', False):
                         used_k, used_theta = net.k_cum[0], net.theta_t[0]
-                        z = Gamma(torch.full(init_samples_shape, used_k), torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
-                        init_samples = z - used_k*used_theta # we don't scale here
+                        z = Gamma(torch.full(init_samples_shape, used_k),
+                                  torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
+                        init_samples = z - used_k * used_theta  # we don't scale here
                     else:
                         init_samples = torch.randn(init_samples_shape, device=self.config.device)
 
@@ -983,12 +1060,10 @@ class NCSNRunner():
                                                                   self.config.sampling.step_lr,
                                                                   cond=cond)
 
-
                 torch.save(refer_images[:width, ...], os.path.join(self.args.image_folder, 'refer_image.pt'))
 
                 # Stretch out multiple frames horizontally
                 refer_images = stretch_image(refer_images, self.config.data.channels, self.config.data.image_size)
-
 
                 refer_images = refer_images[:width, None, ...].expand(-1, width, -1, -1, -1).reshape(-1,
                                                                                                      *refer_images.shape[
@@ -997,7 +1072,8 @@ class NCSNRunner():
 
                 if not self.config.sampling.final_only:
                     for i, sample in enumerate(tqdm(all_samples)):
-                        sample = sample.reshape(self.config.sampling.batch_size, self.config.data.channels*self.config.data.num_frames,
+                        sample = sample.reshape(self.config.sampling.batch_size,
+                                                self.config.data.channels * self.config.data.num_frames,
                                                 self.config.data.image_size, self.config.data.image_size)
 
                         sample = inverse_data_transform(self.config, sample)
@@ -1009,7 +1085,8 @@ class NCSNRunner():
                         save_image(image_grid, os.path.join(self.args.image_folder, 'image_grid_{}.png'.format(i)))
                         torch.save(sample, os.path.join(self.args.image_folder, 'completion_{}.pt'.format(i)))
                 else:
-                    sample = all_samples[-1].reshape(self.config.sampling.batch_size, self.config.data.channels*self.config.data.num_frames,
+                    sample = all_samples[-1].reshape(self.config.sampling.batch_size,
+                                                     self.config.data.channels * self.config.data.num_frames,
                                                      self.config.data.image_size, self.config.data.image_size)
 
                     sample = inverse_data_transform(self.config, sample)
@@ -1028,19 +1105,23 @@ class NCSNRunner():
                     samples, _ = next(data_iter)
                     samples = samples.to(self.config.device)
                     samples = data_transform(self.config, samples)
-                    samples, cond, _ = conditioning_fn(self.config, samples, num_frames_pred=self.config.data.num_frames, conditional=conditional)
+                    samples, cond, _ = conditioning_fn(self.config, samples,
+                                                       num_frames_pred=self.config.data.num_frames,
+                                                       conditional=conditional)
 
                 # z
-                init_samples_shape = (self.config.sampling.batch_size, self.config.data.channels*self.config.data.num_frames,
-                                      self.config.data.image_size, self.config.data.image_size)
+                init_samples_shape = (
+                self.config.sampling.batch_size, self.config.data.channels * self.config.data.num_frames,
+                self.config.data.image_size, self.config.data.image_size)
                 if self.version == "SMLD":
                     z = torch.rand(init_samples_shape, device=self.config.device)
                     z = data_transform(self.config, z)
                 elif self.version == "DDPM" or self.version == "DDIM" or self.version == "FPNDM":
                     if getattr(self.config.model, 'gamma', False):
                         used_k, used_theta = net.k_cum[0], net.theta_t[0]
-                        z = Gamma(torch.full(init_samples_shape, used_k), torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
-                        z = z - used_k*used_theta
+                        z = Gamma(torch.full(init_samples_shape, used_k),
+                                  torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
+                        z = z - used_k * used_theta
                     else:
                         z = torch.randn(init_samples_shape, device=self.config.device)
                         # z = data_transform(self.config, z)
@@ -1057,7 +1138,6 @@ class NCSNRunner():
                 else:
                     init_samples = z
 
-
                 all_samples = anneal_Langevin_dynamics_interpolation(init_samples, scorenet,
                                                                      self.config.sampling.n_interpolations,
                                                                      self.config.sampling.n_steps_each,
@@ -1067,23 +1147,23 @@ class NCSNRunner():
 
                 if not self.config.sampling.final_only:
                     for i, sample in tqdm(enumerate(all_samples), total=len(all_samples),
-                                               desc="saving image samples"):
+                                          desc="saving image samples"):
                         sample = sample.reshape(sample.shape[0], self.config.data.channels,
-                                             self.config.data.image_size,
-                                             self.config.data.image_size)
+                                                self.config.data.image_size,
+                                                self.config.data.image_size)
 
                         sample = inverse_data_transform(self.config, sample)
 
                         # Stretch out multiple frames horizontally
-                        sample = stretch_image(sample, self.config.data.channels, self.config.data.image_size)  
+                        sample = stretch_image(sample, self.config.data.channels, self.config.data.image_size)
 
                         image_grid = make_grid(sample, nrow=self.config.sampling.n_interpolations)
                         save_image(image_grid, os.path.join(self.args.image_folder, 'image_grid_{}.png'.format(i)))
                         torch.save(sample, os.path.join(self.args.image_folder, 'samples_{}.pt'.format(i)))
                 else:
                     sample = all_samples[-1].reshape(all_samples[-1].shape[0], self.config.data.channels,
-                                                  self.config.data.image_size,
-                                                  self.config.data.image_size)
+                                                     self.config.data.image_size,
+                                                     self.config.data.image_size)
 
                     sample = inverse_data_transform(self.config, sample)
 
@@ -1101,19 +1181,23 @@ class NCSNRunner():
                     real, _ = next(data_iter)
                     real = real.to(self.config.device)
                     real = data_transform(self.config, real)
-                    real, cond, cond_mask = conditioning_fn(self.config, real, num_frames_pred=self.config.data.num_frames, conditional=conditional)
+                    real, cond, cond_mask = conditioning_fn(self.config, real,
+                                                            num_frames_pred=self.config.data.num_frames,
+                                                            conditional=conditional)
 
                 # z
-                init_samples_shape = (self.config.sampling.batch_size, self.config.data.channels*self.config.data.num_frames,
-                                      self.config.data.image_size, self.config.data.image_size)
+                init_samples_shape = (
+                self.config.sampling.batch_size, self.config.data.channels * self.config.data.num_frames,
+                self.config.data.image_size, self.config.data.image_size)
                 if self.version == "SMLD":
                     z = torch.rand(init_samples_shape, device=self.config.device)
                     z = data_transform(self.config, z)
                 elif self.version == "DDPM" or self.version == "DDIM" or self.version == "FPNDM":
                     if getattr(self.config.model, 'gamma', False):
                         used_k, used_theta = net.k_cum[0], net.theta_t[0]
-                        z = Gamma(torch.full(init_samples_shape, used_k), torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
-                        z = z - used_k*used_theta
+                        z = Gamma(torch.full(init_samples_shape, used_k),
+                                  torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
+                        z = z - used_k * used_theta
                     else:
                         z = torch.randn(init_samples_shape, device=self.config.device)
                         # z = data_transform(self.config, z)
@@ -1144,47 +1228,58 @@ class NCSNRunner():
 
                 if not self.config.sampling.final_only:
                     for i, sample in tqdm(enumerate(all_samples), total=len(all_samples),
-                                               desc="saving image samples"):
+                                          desc="saving image samples"):
                         sample = sample.reshape(sample.shape[0], self.config.data.channels,
-                                             self.config.data.image_size,
-                                             self.config.data.image_size)
+                                                self.config.data.image_size,
+                                                self.config.data.image_size)
 
                         sample = inverse_data_transform(self.config, sample)
 
                         # Stretch out multiple frames horizontally
                         sample = stretch_image(sample, self.config.data.channels, self.config.data.image_size)
 
-                        nrow = ceil(np.sqrt(self.config.data.num_frames*self.config.sampling.batch_size)/self.config.data.num_frames)
+                        nrow = ceil(np.sqrt(
+                            self.config.data.num_frames * self.config.sampling.batch_size) / self.config.data.num_frames)
                         image_grid = make_grid(sample, nrow, pad_value=0.5)
                         save_image(image_grid, os.path.join(self.args.image_folder, 'image_grid_{:04d}.png'.format(i)))
                         torch.save(sample, os.path.join(self.args.image_folder, 'samples_{:04d}.pt'.format(i)))
 
                 else:
-                    sample = all_samples[-1].reshape(all_samples[-1].shape[0], self.config.data.channels*self.config.data.num_frames,
-                                                  self.config.data.image_size, self.config.data.image_size)
+                    sample = all_samples[-1].reshape(all_samples[-1].shape[0],
+                                                     self.config.data.channels * self.config.data.num_frames,
+                                                     self.config.data.image_size, self.config.data.image_size)
 
                     sample = inverse_data_transform(self.config, sample)
 
                     # Stretch out multiple frames horizontally
                     sample = stretch_image(sample, self.config.data.channels, self.config.data.image_size)
 
-                    nrow = ceil(np.sqrt(self.config.data.num_frames*self.config.sampling.batch_size)/self.config.data.num_frames)
+                    nrow = ceil(np.sqrt(
+                        self.config.data.num_frames * self.config.sampling.batch_size) / self.config.data.num_frames)
                     image_grid = make_grid(sample, nrow, pad_value=0.5)
                     save_image(image_grid, os.path.join(self.args.image_folder, 'image_grid_{}.png'.format(ckpt)))
                     torch.save(sample, os.path.join(self.args.image_folder, 'samples_{}.pt'.format(ckpt)))
 
                 if conditional:
                     real, cond = real.to('cpu'), cond.to('cpu')
-                    real = stretch_image(inverse_data_transform(self.config, real), self.config.data.channels, self.config.data.image_size)
+                    real = stretch_image(inverse_data_transform(self.config, real), self.config.data.channels,
+                                         self.config.data.image_size)
                     if future > 0:
-                        cond, futr = torch.tensor_split(cond, (self.config.data.num_frames_cond*self.config.data.channels,), dim=1)
-                        futr = stretch_image(inverse_data_transform(self.config, futr), self.config.data.channels, self.config.data.image_size)
-                    cond = stretch_image(inverse_data_transform(self.config, cond), self.config.data.channels, self.config.data.image_size)
-                    padding = 0.5*torch.ones(len(real), self.config.data.channels, self.config.data.image_size, 2)
-                    nrow = ceil(np.sqrt((self.config.data.num_frames_cond+self.config.data.num_frames*2+future)*self.config.sampling.batch_size)/(self.config.data.num_frames_cond+self.config.data.num_frames*2+future))
+                        cond, futr = torch.tensor_split(cond,
+                                                        (self.config.data.num_frames_cond * self.config.data.channels,),
+                                                        dim=1)
+                        futr = stretch_image(inverse_data_transform(self.config, futr), self.config.data.channels,
+                                             self.config.data.image_size)
+                    cond = stretch_image(inverse_data_transform(self.config, cond), self.config.data.channels,
+                                         self.config.data.image_size)
+                    padding = 0.5 * torch.ones(len(real), self.config.data.channels, self.config.data.image_size, 2)
+                    nrow = ceil(np.sqrt((
+                                                    self.config.data.num_frames_cond + self.config.data.num_frames * 2 + future) * self.config.sampling.batch_size) / (
+                                            self.config.data.num_frames_cond + self.config.data.num_frames * 2 + future))
                     image_grid = make_grid(torch.cat(
-                        [cond, padding, real, padding, sample] if future == 0 else [cond, padding, real, padding, sample, futr],
-                            dim=-1), nrow=nrow, padding=6, pad_value=0.5)
+                        [cond, padding, real, padding, sample] if future == 0 else [cond, padding, real, padding,
+                                                                                    sample, futr],
+                        dim=-1), nrow=nrow, padding=6, pad_value=0.5)
                     save_image(image_grid, os.path.join(self.args.image_folder, 'image_full_grid_{}.png'.format(ckpt)))
                     torch.save(sample, os.path.join(self.args.image_folder, 'samples_full_{}.pt'.format(ckpt)))
 
@@ -1195,7 +1290,8 @@ class NCSNRunner():
 
                 # If FFHQ tfrecord, reset dataloader
                 if self.config.data.dataset.upper() == 'FFHQ':
-                    dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size, self.config.data.image_size)
+                    dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size,
+                                                          self.config.data.image_size)
                 else:
                     dataloader = DataLoader(dataset, batch_size=self.config.sampling.batch_size, shuffle=True,
                                             num_workers=self.config.data.num_workers)
@@ -1205,10 +1301,11 @@ class NCSNRunner():
             cond = None
             if conditional:
                 if self.config.data.dataset.upper() == 'FFHQ':
-                    dataloader_cond = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size, self.config.data.image_size)
+                    dataloader_cond = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size,
+                                                               self.config.data.image_size)
                 else:
                     dataloader_cond = DataLoader(dataset, batch_size=self.config.sampling.batch_size, shuffle=True,
-                                            num_workers=self.config.data.num_workers)
+                                                 num_workers=self.config.data.num_workers)
                 data_iter_cond = iter(dataloader_cond)
 
             # Sampler
@@ -1216,8 +1313,9 @@ class NCSNRunner():
             fids = {}
             for i in tqdm(range(n_rounds), desc='Generating samples for FID'):
 
-                init_samples_shape = (self.config.sampling.batch_size, self.config.data.channels*self.config.data.num_frames,
-                                      self.config.data.image_size, self.config.data.image_size)
+                init_samples_shape = (
+                self.config.sampling.batch_size, self.config.data.channels * self.config.data.num_frames,
+                self.config.data.image_size, self.config.data.image_size)
                 # z
                 if self.version == "SMLD":
                     z = torch.rand(init_samples_shape, device=self.config.device)
@@ -1225,8 +1323,9 @@ class NCSNRunner():
                 elif self.version == "DDPM" or self.version == "DDIM" or self.version == "FPNDM":
                     if getattr(self.config.model, 'gamma', False):
                         used_k, used_theta = net.k_cum[0], net.theta_t[0]
-                        z = Gamma(torch.full(init_samples_shape, used_k), torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
-                        z = z - used_k*used_theta
+                        z = Gamma(torch.full(init_samples_shape, used_k),
+                                  torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
+                        z = z - used_k * used_theta
                     else:
                         z = torch.randn(init_samples_shape, device=self.config.device)
                         # z = data_transform(self.config, z)
@@ -1237,12 +1336,15 @@ class NCSNRunner():
                         real, _ = next(data_iter)
                     except StopIteration:
                         if self.config.data.dataset.upper() == 'FFHQ':
-                            dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size, self.config.data.image_size)
+                            dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path],
+                                                                  self.config.sampling.batch_size,
+                                                                  self.config.data.image_size)
                         data_iter = iter(dataloader)
                         real, _ = next(data_iter)
                     real = real.to(self.config.device)
                     real = data_transform(self.config, real)
-                    real, cond, _ = conditioning_fn(self.config, real, num_frames_pred=self.config.data.num_frames, conditional=conditional)
+                    real, cond, _ = conditioning_fn(self.config, real, num_frames_pred=self.config.data.num_frames,
+                                                    conditional=conditional)
                     if self.version == "SMLD":
                         z = torch.randn_like(real)
                         init_samples = real + float(self.config.model.sigma_begin) * z
@@ -1258,12 +1360,15 @@ class NCSNRunner():
                         real, _ = next(data_iter_cond)
                     except StopIteration:
                         if self.config.data.dataset.upper() == 'FFHQ':
-                            dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size, self.config.data.image_size)
+                            dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path],
+                                                                  self.config.sampling.batch_size,
+                                                                  self.config.data.image_size)
                         data_iter_cond = iter(dataloader)
                         real, _ = next(data_iter_cond)
                     real = real.to(self.config.device)
                     real = data_transform(self.config, real)
-                    _, cond, _ = conditioning_fn(self.config, real, num_frames_pred=self.config.data.num_frames, conditional=conditional)
+                    _, cond, _ = conditioning_fn(self.config, real, num_frames_pred=self.config.data.num_frames,
+                                                 conditional=conditional)
 
                 all_samples = sampler(init_samples, scorenet, cond=cond,
                                       n_steps_each=self.config.sampling.n_steps_each,
@@ -1273,7 +1378,8 @@ class NCSNRunner():
                                       clip_before=getattr(self.config.sampling, 'clip_before', True),
                                       log=True, gamma=getattr(self.config.model, 'gamma', False)).to('cpu')
 
-                final_samples = all_samples[-1].reshape(all_samples[-1].shape[0], self.config.data.channels*self.config.data.num_frames,
+                final_samples = all_samples[-1].reshape(all_samples[-1].shape[0],
+                                                        self.config.data.channels * self.config.data.num_frames,
                                                         self.config.data.image_size, self.config.data.image_size)
                 final_samples = inverse_data_transform(self.config, final_samples)
                 gen_samples = final_samples if i == 0 else torch.cat([gen_samples, final_samples], dim=0)
@@ -1295,8 +1401,10 @@ class NCSNRunner():
 
             # Save samples
             # Stretch out multiple frames horizontally
-            gen_samples_to_save = stretch_image(gen_samples[:self.config.sampling.batch_size], self.config.data.channels, self.config.data.image_size)
-            nrow = ceil(np.sqrt(self.config.data.num_frames*self.config.sampling.batch_size)/self.config.data.num_frames)
+            gen_samples_to_save = stretch_image(gen_samples[:self.config.sampling.batch_size],
+                                                self.config.data.channels, self.config.data.image_size)
+            nrow = ceil(
+                np.sqrt(self.config.data.num_frames * self.config.sampling.batch_size) / self.config.data.num_frames)
             image_grid = make_grid(gen_samples_to_save, nrow, pad_value=0.5)
             save_image(image_grid, os.path.join(self.args.image_folder, 'image_grid_{}.png'.format(ckpt)))
             torch.save(gen_samples, os.path.join(self.args.image_folder, 'samples_{}.pt'.format(ckpt)))
@@ -1311,23 +1419,23 @@ class NCSNRunner():
         # FVD
         if calc_fvd:
 
-            if self.condp == 0.0 and self.futrf == 0:                           # (1) Prediction
+            if self.condp == 0.0 and self.futrf == 0:  # (1) Prediction
                 calc_fvd1 = self.condf + self.config.sampling.num_frames_pred >= 10
                 calc_fvd2 = calc_fvd3 = False
-            elif self.condp == 0.0 and self.futrf > 0 and self.futrp == 0.0:    # (1) Interpolation
+            elif self.condp == 0.0 and self.futrf > 0 and self.futrp == 0.0:  # (1) Interpolation
                 calc_fvd1 = self.condf + self.config.data.num_frames + self.futrf >= 10
                 calc_fvd2 = calc_fvd3 = False
-            elif self.condp == 0.0 and self.futrf > 0 and self.futrp > 0.0:     # (1) Interp + (2) Pred
+            elif self.condp == 0.0 and self.futrf > 0 and self.futrp > 0.0:  # (1) Interp + (2) Pred
                 calc_fvd1 = self.condf + self.config.data.num_frames + self.futrf >= 10
                 calc_fvd2 = self.condf + self.config.sampling.num_frames_pred >= 10
                 calc_fvd3 = False
-            elif self.condp > 0.0 and self.futrf == 0:                         # (1) Pred + (3) Gen
+            elif self.condp > 0.0 and self.futrf == 0:  # (1) Pred + (3) Gen
                 calc_fvd1 = calc_fvd3 = self.condf + self.config.sampling.num_frames_pred >= 10
                 calc_fvd2 = False
-            elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and not self.prob_mask_sync:      # (1) Interp + (2) Pred + (3) Gen
+            elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and not self.prob_mask_sync:  # (1) Interp + (2) Pred + (3) Gen
                 calc_fvd1 = self.condf + self.config.data.num_frames + self.futrf >= 10
                 calc_fvd2 = calc_fvd3 = self.condf + self.config.sampling.num_frames_pred >= 10
-            elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and self.prob_mask_sync:          # (1) Interp + (3) Gen
+            elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and self.prob_mask_sync:  # (1) Interp + (3) Gen
                 calc_fvd1 = self.condf + self.config.data.num_frames + self.futrf >= 10
                 calc_fvd2 = False
                 calc_fvd3 = self.condf + self.config.sampling.num_frames_pred >= 10
@@ -1344,8 +1452,8 @@ class NCSNRunner():
                 return {}
 
         if train:
-            assert(scorenet is not None and ckpt is not None)
-            max_data_iter = 1   # self.config.sampling.max_data_iter
+            assert (scorenet is not None and ckpt is not None)
+            max_data_iter = 1  # self.config.sampling.max_data_iter
             preds_per_test = 1  # self.config.sampling.preds_per_test
         else:
             self.start_time = time.time()
@@ -1386,7 +1494,6 @@ class NCSNRunner():
                 ema_helper.load_state_dict(states[-1])
                 ema_helper.ema(scorenet)
 
-
         net = scorenet.module if hasattr(scorenet, 'module') else scorenet
 
         # Collate fn for n repeats
@@ -1396,22 +1503,23 @@ class NCSNRunner():
             return data, torch.zeros(len(data))
 
         # Data
-        if self.condp == 0.0 and self.futrf == 0:                           # (1) Prediction
+        if self.condp == 0.0 and self.futrf == 0:  # (1) Prediction
             num_frames_pred = self.config.sampling.num_frames_pred
-        elif self.condp == 0.0 and self.futrf > 0 and self.futrp == 0.0:    # (1) Interpolation
+        elif self.condp == 0.0 and self.futrf > 0 and self.futrp == 0.0:  # (1) Interpolation
             num_frames_pred = self.config.data.num_frames
-        elif self.condp == 0.0 and self.futrf > 0 and self.futrp > 0.0:     # (1) Interp + (2) Pred
+        elif self.condp == 0.0 and self.futrf > 0 and self.futrp > 0.0:  # (1) Interp + (2) Pred
             num_frames_pred = max(self.config.data.num_frames, self.config.sampling.num_frames_pred)
-        elif self.condp > 0.0 and self.futrf == 0:                         # (1) Pred + (3) Gen
+        elif self.condp > 0.0 and self.futrf == 0:  # (1) Pred + (3) Gen
             num_frames_pred = self.config.sampling.num_frames_pred
-        elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0:     # (1) Interp + (2) Pred + (3) Gen
+        elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0:  # (1) Interp + (2) Pred + (3) Gen
             num_frames_pred = self.config.sampling.num_frames_pred
-        elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and self.prob_mask_sync:     # (1) Interp + (3) Gen
+        elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and self.prob_mask_sync:  # (1) Interp + (3) Gen
             num_frames_pred = max(self.config.data.num_frames, self.config.sampling.num_frames_pred)
 
-        dataset_train, dataset_test = get_dataset(self.args.data_path, self.config, video_frames_pred=num_frames_pred, start_at=self.args.start_at)
+        dataset_train, dataset_test = get_dataset(self.args.data_path, self.config, video_frames_pred=num_frames_pred,
+                                                  start_at=self.args.start_at)
         dataset = dataset_train if getattr(self.config.sampling, "train", False) else dataset_test
-        dataloader = DataLoader(dataset, batch_size=self.config.sampling.batch_size//preds_per_test, shuffle=True,
+        dataloader = DataLoader(dataset, batch_size=self.config.sampling.batch_size // preds_per_test, shuffle=True,
                                 num_workers=self.config.data.num_workers, drop_last=False, collate_fn=my_collate)
         data_iter = iter(dataloader)
 
@@ -1426,18 +1534,20 @@ class NCSNRunner():
         fake_embeddings, fake_embeddings2, fake_embeddings_uncond = [], [], []
 
         T2 = Transforms.Compose([Transforms.Resize((128, 128)),
-                     Transforms.ToTensor(),
-                     Transforms.Normalize(mean=(0.5, 0.5, 0.5),
-                                         std=(0.5, 0.5, 0.5))])
-        model_lpips = eval_models.PerceptualLoss(model='net-lin',net='alex', device=self.config.device) # already in test mode and dataparallel
-        #model_lpips = torch.nn.DataParallel(model_lpips)
-        #model_lpips.eval()
+                                 Transforms.ToTensor(),
+                                 Transforms.Normalize(mean=(0.5, 0.5, 0.5),
+                                                      std=(0.5, 0.5, 0.5))])
+        model_lpips = eval_models.PerceptualLoss(model='net-lin', net='alex',
+                                                 device=self.config.device)  # already in test mode and dataparallel
+        # model_lpips = torch.nn.DataParallel(model_lpips)
+        # model_lpips.eval()
         # Sampler
         sampler = self.get_sampler()
 
-        for i, (real_, _) in tqdm(enumerate(dataloader), total=min(max_data_iter, len(dataloader)), desc="\nvideo_gen dataloader"):
+        for i, (real_, _) in tqdm(enumerate(dataloader), total=min(max_data_iter, len(dataloader)),
+                                  desc="\nvideo_gen dataloader"):
 
-            if i >= max_data_iter: # stop early
+            if i >= max_data_iter:  # stop early
                 break
 
             real_ = data_transform(self.config, real_)
@@ -1450,11 +1560,13 @@ class NCSNRunner():
             # Video Prediction
             if future == 0:
                 num_frames_pred = self.config.sampling.num_frames_pred
-                logging.info(f"PREDICTING {num_frames_pred} frames, using a {self.config.data.num_frames} frame model conditioned on {self.config.data.num_frames_cond} frames, subsample={getattr(self.config.sampling, 'subsample', None)}, preds_per_test={preds_per_test}")
+                logging.info(
+                    f"PREDICTING {num_frames_pred} frames, using a {self.config.data.num_frames} frame model conditioned on {self.config.data.num_frames_cond} frames, subsample={getattr(self.config.sampling, 'subsample', None)}, preds_per_test={preds_per_test}")
             # Video Interpolation
             else:
                 num_frames_pred = self.config.data.num_frames
-                logging.info(f"INTERPOLATING {num_frames_pred} frames, using a {self.config.data.num_frames} frame model conditioned on {self.config.data.num_frames_cond} cond + {future} future frames, subsample={getattr(self.config.sampling, 'subsample', None)}, preds_per_test={preds_per_test}")
+                logging.info(
+                    f"INTERPOLATING {num_frames_pred} frames, using a {self.config.data.num_frames} frame model conditioned on {self.config.data.num_frames_cond} cond + {future} future frames, subsample={getattr(self.config.sampling, 'subsample', None)}, preds_per_test={preds_per_test}")
 
             real, cond, cond_mask = conditioning_fn(self.config, real_, num_frames_pred=num_frames_pred,
                                                     prob_mask_cond=0.0, prob_mask_future=0.0, conditional=conditional)
@@ -1463,7 +1575,7 @@ class NCSNRunner():
             cond = cond.to(self.config.device)
 
             # z
-            init_samples_shape = (real.shape[0], self.config.data.channels*self.config.data.num_frames,
+            init_samples_shape = (real.shape[0], self.config.data.channels * self.config.data.num_frames,
                                   self.config.data.image_size, self.config.data.image_size)
             if self.version == "SMLD":
                 z = torch.rand(init_samples_shape, device=self.config.device)
@@ -1471,8 +1583,9 @@ class NCSNRunner():
             elif self.version == "DDPM" or self.version == "DDIM" or self.version == "FPNDM":
                 if getattr(self.config.model, 'gamma', False):
                     used_k, used_theta = net.k_cum[0], net.theta_t[0]
-                    z = Gamma(torch.full(init_samples_shape, used_k), torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
-                    z = z - used_k*used_theta
+                    z = Gamma(torch.full(init_samples_shape, used_k),
+                              torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
+                    z = z - used_k * used_theta
                 else:
                     z = torch.randn(init_samples_shape, device=self.config.device)
 
@@ -1482,13 +1595,14 @@ class NCSNRunner():
                     real_init, _ = next(data_iter2)
                 except StopIteration:
                     if self.config.data.dataset.upper() == 'FFHQ':
-                        dataloader2 = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size, self.config.data.image_size)
+                        dataloader2 = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size,
+                                                               self.config.data.image_size)
                     data_iter2 = iter(dataloader2)
                     real_init, _ = next(data_iter2)
                 real_init = data_transform(self.config, real_init)
                 real_init, _, _ = conditioning_fn(self.config, real_init, conditional=conditional)
                 real_init = real_init.to(self.config.device)
-                real_init1 = real_init[:, :self.config.data.channels*self.config.data.num_frames]
+                real_init1 = real_init[:, :self.config.data.channels * self.config.data.num_frames]
                 if self.version == "SMLD":
                     z = torch.randn_like(real_init1)
                     init_samples = real_init1 + float(self.config.model.sigma_begin) * z
@@ -1511,15 +1625,20 @@ class NCSNRunner():
                 mynet = scorenet
 
                 # Generate samples
-                gen_samples = sampler(init_samples if i_frame==0 or getattr(self.config.sampling, 'init_prev_t', -1) <= 0 else gen_samples,
+                gen_samples = sampler(init_samples if i_frame == 0 or getattr(self.config.sampling, 'init_prev_t',
+                                                                              -1) <= 0 else gen_samples,
                                       mynet, cond=cond, cond_mask=cond_mask,
-                                      n_steps_each=self.config.sampling.n_steps_each, step_lr=self.config.sampling.step_lr,
-                                      verbose=True if not train else False, final_only=True, denoise=self.config.sampling.denoise,
+                                      n_steps_each=self.config.sampling.n_steps_each,
+                                      step_lr=self.config.sampling.step_lr,
+                                      verbose=True if not train else False, final_only=True,
+                                      denoise=self.config.sampling.denoise,
                                       subsample_steps=getattr(self.config.sampling, 'subsample', None),
                                       clip_before=getattr(self.config.sampling, 'clip_before', True),
-                                      t_min=getattr(self.config.sampling, 'init_prev_t', -1), log=True if not train else False,
+                                      t_min=getattr(self.config.sampling, 'init_prev_t', -1),
+                                      log=True if not train else False,
                                       gamma=getattr(self.config.model, 'gamma', False))
-                gen_samples = gen_samples[-1].reshape(gen_samples[-1].shape[0], self.config.data.channels*self.config.data.num_frames,
+                gen_samples = gen_samples[-1].reshape(gen_samples[-1].shape[0],
+                                                      self.config.data.channels * self.config.data.num_frames,
                                                       self.config.data.image_size, self.config.data.image_size)
                 pred_samples.append(gen_samples.to('cpu'))
 
@@ -1530,14 +1649,16 @@ class NCSNRunner():
 
                 # Autoregressively setup conditioning
                 # cond -> [cond[n:], pred[:n]]
-                if cond is None: # first frames are the cond
+                if cond is None:  # first frames are the cond
                     cond = gen_samples
                 elif getattr(self.config.sampling, 'one_frame_at_a_time', False):
-                    cond = torch.cat([cond[:, self.config.data.channels:], gen_samples[:, :self.config.data.channels]], dim=1)
+                    cond = torch.cat([cond[:, self.config.data.channels:], gen_samples[:, :self.config.data.channels]],
+                                     dim=1)
                 else:
-                    cond = torch.cat([cond[:, self.config.data.channels*self.config.data.num_frames:],
-                                      gen_samples[:, self.config.data.channels*max(0, self.config.data.num_frames - self.config.data.num_frames_cond):]
-                                     ], dim=1)
+                    cond = torch.cat([cond[:, self.config.data.channels * self.config.data.num_frames:],
+                                      gen_samples[:, self.config.data.channels * max(0,
+                                                                                     self.config.data.num_frames - self.config.data.num_frames_cond):]
+                                      ], dim=1)
 
                 # resample new random init
                 if self.version == "SMLD":
@@ -1546,17 +1667,20 @@ class NCSNRunner():
                 elif self.version == "DDPM" or self.version == "DDIM" or self.version == "FPNDM":
                     if getattr(self.config.model, 'gamma', False):
                         used_k, used_theta = net.k_cum[0], net.theta_t[0]
-                        z = Gamma(torch.full(init_samples_shape, used_k), torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
-                        z = z - used_k*used_theta
+                        z = Gamma(torch.full(init_samples_shape, used_k),
+                                  torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
+                        z = z - used_k * used_theta
                     else:
                         z = torch.randn(init_samples_shape, device=self.config.device)
 
                 # init_samples
                 if self.config.sampling.data_init:
                     if getattr(self.config.sampling, 'one_frame_at_a_time', False):
-                        real_init1 = real_init[self.config.data.channels*(i_frame+1):self.config.data.channels*(i_frame+1+self.config.data.num_frames)]
+                        real_init1 = real_init[self.config.data.channels * (i_frame + 1):self.config.data.channels * (
+                                    i_frame + 1 + self.config.data.num_frames)]
                     else:
-                        real_init1 = real_init[(i_frame+1)*self.config.data.channels*self.config.data.num_frames:(i_frame+2)*self.config.data.channels*self.config.data.num_frames]
+                        real_init1 = real_init[(i_frame + 1) * self.config.data.channels * self.config.data.num_frames:(
+                                                                                                                                   i_frame + 2) * self.config.data.channels * self.config.data.num_frames]
                     if self.version == "SMLD":
                         z = torch.randn_like(real_init1)
                         init_samples = real_init1 + float(self.config.model.sigma_begin) * z
@@ -1567,12 +1691,13 @@ class NCSNRunner():
                 else:
                     init_samples = z
 
-            pred = torch.cat(pred_samples, dim=1)[:, :self.config.data.channels*num_frames_pred]
+            pred = torch.cat(pred_samples, dim=1)[:, :self.config.data.channels * num_frames_pred]
             pred = inverse_data_transform(self.config, pred)
             # pred has length of multiple of n (because we repeat data sample n times)
-            
-            if real.shape[1] < pred.shape[1]: # We cannot calculate MSE, PSNR, SSIM
-                print("-------- Warning: Cannot calculate metrics because predicting beyond the training data range --------")
+
+            if real.shape[1] < pred.shape[1]:  # We cannot calculate MSE, PSNR, SSIM
+                print(
+                    "-------- Warning: Cannot calculate metrics because predicting beyond the training data range --------")
                 for ii in range(len(pred)):
                     vid_mse.append(0)
                     vid_ssim.append(0)
@@ -1584,8 +1709,10 @@ class NCSNRunner():
                     for jj in range(num_frames_pred):
 
                         # MSE (and PSNR)
-                        pred_ij = pred[ii, (self.config.data.channels*jj):(self.config.data.channels*jj + self.config.data.channels), :, :]
-                        real_ij = real[ii, (self.config.data.channels*jj):(self.config.data.channels*jj + self.config.data.channels), :, :]
+                        pred_ij = pred[ii, (self.config.data.channels * jj):(
+                                    self.config.data.channels * jj + self.config.data.channels), :, :]
+                        real_ij = real[ii, (self.config.data.channels * jj):(
+                                    self.config.data.channels * jj + self.config.data.channels), :, :]
                         mse += F.mse_loss(real_ij, pred_ij)
 
                         pred_ij_pil = Transforms.ToPILImage()(pred_ij).convert("RGB")
@@ -1596,9 +1723,12 @@ class NCSNRunner():
                         real_ij_np_grey = np.asarray(real_ij_pil.convert('L'))
                         if self.config.data.dataset.upper() == "STOCHASTICMOVINGMNIST" or self.config.data.dataset.upper() == "MOVINGMNIST":
                             # ssim is the only metric extremely sensitive to gray being compared to b/w 
-                            pred_ij_np_grey = np.asarray(Transforms.ToPILImage()(torch.round(pred_ij)).convert("RGB").convert('L'))
-                            real_ij_np_grey = np.asarray(Transforms.ToPILImage()(torch.round(real_ij)).convert("RGB").convert('L'))
-                        avg_ssim += ssim(pred_ij_np_grey, real_ij_np_grey, data_range=255, gaussian_weights=True, use_sample_covariance=False)
+                            pred_ij_np_grey = np.asarray(
+                                Transforms.ToPILImage()(torch.round(pred_ij)).convert("RGB").convert('L'))
+                            real_ij_np_grey = np.asarray(
+                                Transforms.ToPILImage()(torch.round(real_ij)).convert("RGB").convert('L'))
+                        avg_ssim += ssim(pred_ij_np_grey, real_ij_np_grey, data_range=255, gaussian_weights=True,
+                                         use_sample_covariance=False)
 
                         # Calculate LPIPS
                         pred_ij_LPIPS = T2(pred_ij_pil).unsqueeze(0).to(self.config.device)
@@ -1608,7 +1738,6 @@ class NCSNRunner():
                     vid_mse.append(mse / num_frames_pred)
                     vid_ssim.append(avg_ssim / num_frames_pred)
                     vid_lpips.append(avg_distance.data.item() / num_frames_pred)
-
 
             # (2) Conditional Video Predition, if (1) was Interpolation : Calc MSE,etc. and FVD on fully cond model i.e. prob_mask_cond=0.0
             # unless prob_mask_sync is True, in which case perform (3) uncond gen
@@ -1621,16 +1750,18 @@ class NCSNRunner():
 
                 num_frames_pred = self.config.sampling.num_frames_pred
 
-                logging.info(f"PREDICTING {num_frames_pred} frames, using a {self.config.data.num_frames} frame model conditioned on {self.config.data.num_frames_cond} frames, subsample={getattr(self.config.sampling, 'subsample', None)}, preds_per_test={preds_per_test}")
+                logging.info(
+                    f"PREDICTING {num_frames_pred} frames, using a {self.config.data.num_frames} frame model conditioned on {self.config.data.num_frames_cond} frames, subsample={getattr(self.config.sampling, 'subsample', None)}, preds_per_test={preds_per_test}")
 
                 real2, cond, cond_mask = conditioning_fn(self.config, real_, num_frames_pred=num_frames_pred,
-                                                         prob_mask_cond=0.0, prob_mask_future=1.0, conditional=conditional)
+                                                         prob_mask_cond=0.0, prob_mask_future=1.0,
+                                                         conditional=conditional)
                 real2 = inverse_data_transform(self.config, real2)
                 cond_original2 = inverse_data_transform(self.config, cond.clone())
                 cond = cond.to(self.config.device)
 
                 # z
-                init_samples_shape = (real.shape[0], self.config.data.channels*self.config.data.num_frames,
+                init_samples_shape = (real.shape[0], self.config.data.channels * self.config.data.num_frames,
                                       self.config.data.image_size, self.config.data.image_size)
                 if self.version == "SMLD":
                     z = torch.rand(init_samples_shape, device=self.config.device)
@@ -1638,8 +1769,9 @@ class NCSNRunner():
                 elif self.version == "DDPM" or self.version == "DDIM" or self.version == "FPNDM":
                     if getattr(self.config.model, 'gamma', False):
                         used_k, used_theta = net.k_cum[0], net.theta_t[0]
-                        z = Gamma(torch.full(init_samples_shape, used_k), torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
-                        z = z - used_k*used_theta
+                        z = Gamma(torch.full(init_samples_shape, used_k),
+                                  torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
+                        z = z - used_k * used_theta
                     else:
                         z = torch.randn(init_samples_shape, device=self.config.device)
 
@@ -1649,13 +1781,15 @@ class NCSNRunner():
                         real_init, _ = next(data_iter2)
                     except StopIteration:
                         if self.config.data.dataset.upper() == 'FFHQ':
-                            dataloader2 = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size, self.config.data.image_size)
+                            dataloader2 = FFHQ_TFRecordsDataLoader([self.args.data_path],
+                                                                   self.config.sampling.batch_size,
+                                                                   self.config.data.image_size)
                         data_iter2 = iter(dataloader2)
                         real_init, _ = next(data_iter2)
                     real_init = data_transform(self.config, real_init)
                     real_init, _, _ = conditioning_fn(self.config, real_init, conditional=conditional)
                     real_init = real_init.to(self.config.device)
-                    real_init1 = real_init[:, :self.config.data.channels*self.config.data.num_frames]
+                    real_init1 = real_init[:, :self.config.data.channels * self.config.data.num_frames]
                     if self.version == "SMLD":
                         z = torch.randn_like(real_init1)
                         init_samples = real_init1 + float(self.config.model.sigma_begin) * z
@@ -1678,15 +1812,20 @@ class NCSNRunner():
                     mynet = scorenet
 
                     # Generate samples
-                    gen_samples = sampler(init_samples if i_frame==0 or getattr(self.config.sampling, 'init_prev_t', -1) <= 0 else gen_samples,
+                    gen_samples = sampler(init_samples if i_frame == 0 or getattr(self.config.sampling, 'init_prev_t',
+                                                                                  -1) <= 0 else gen_samples,
                                           mynet, cond=cond, cond_mask=cond_mask,
-                                          n_steps_each=self.config.sampling.n_steps_each, step_lr=self.config.sampling.step_lr,
-                                          verbose=True if not train else False, final_only=True, denoise=self.config.sampling.denoise,
+                                          n_steps_each=self.config.sampling.n_steps_each,
+                                          step_lr=self.config.sampling.step_lr,
+                                          verbose=True if not train else False, final_only=True,
+                                          denoise=self.config.sampling.denoise,
                                           subsample_steps=getattr(self.config.sampling, 'subsample', None),
                                           clip_before=getattr(self.config.sampling, 'clip_before', True),
-                                          t_min=getattr(self.config.sampling, 'init_prev_t', -1), log=True if not train else False,
+                                          t_min=getattr(self.config.sampling, 'init_prev_t', -1),
+                                          log=True if not train else False,
                                           gamma=getattr(self.config.model, 'gamma', False))
-                    gen_samples = gen_samples[-1].reshape(gen_samples[-1].shape[0], self.config.data.channels*self.config.data.num_frames,
+                    gen_samples = gen_samples[-1].reshape(gen_samples[-1].shape[0],
+                                                          self.config.data.channels * self.config.data.num_frames,
                                                           self.config.data.image_size, self.config.data.image_size)
                     pred_samples.append(gen_samples.to('cpu'))
 
@@ -1695,18 +1834,22 @@ class NCSNRunner():
 
                     # Autoregressively setup conditioning
                     # cond -> [cond[n:], pred[:n]]
-                    if cond is None: # first frames are the cond
+                    if cond is None:  # first frames are the cond
                         cond = gen_samples
                     elif getattr(self.config.sampling, 'one_frame_at_a_time', False):
                         cond = torch.cat([cond[:, self.config.data.channels:],
                                           gen_samples[:, :self.config.data.channels],
-                                          cond[:, -self.config.data.channels*future:]   # future frames are always there, but always 0
-                                         ], dim=1)
+                                          cond[:, -self.config.data.channels * future:]
+                                          # future frames are always there, but always 0
+                                          ], dim=1)
                     else:
-                        cond = torch.cat([cond[:, self.config.data.channels*self.config.data.num_frames:-self.config.data.channels*future],
-                                          gen_samples[:, self.config.data.channels*max(0, self.config.data.num_frames - self.config.data.num_frames_cond):],
-                                          cond[:, -self.config.data.channels*future:]   # future frames are always there, but always 0
-                                         ], dim=1)
+                        cond = torch.cat([cond[:,
+                                          self.config.data.channels * self.config.data.num_frames:-self.config.data.channels * future],
+                                          gen_samples[:, self.config.data.channels * max(0,
+                                                                                         self.config.data.num_frames - self.config.data.num_frames_cond):],
+                                          cond[:, -self.config.data.channels * future:]
+                                          # future frames are always there, but always 0
+                                          ], dim=1)
 
                     # resample new random init
                     if self.version == "SMLD":
@@ -1715,17 +1858,22 @@ class NCSNRunner():
                     elif self.version == "DDPM" or self.version == "DDIM" or self.version == "FPNDM":
                         if getattr(self.config.model, 'gamma', False):
                             used_k, used_theta = net.k_cum[0], net.theta_t[0]
-                            z = Gamma(torch.full(init_samples_shape, used_k), torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
-                            z = z - used_k*used_theta
+                            z = Gamma(torch.full(init_samples_shape, used_k),
+                                      torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
+                            z = z - used_k * used_theta
                         else:
                             z = torch.randn(init_samples_shape, device=self.config.device)
 
                     # init_samples
                     if self.config.sampling.data_init:
                         if getattr(self.config.sampling, 'one_frame_at_a_time', False):
-                            real_init1 = real_init[self.config.data.channels*(i_frame+1):self.config.data.channels*(i_frame+1+self.config.data.num_frames)]
+                            real_init1 = real_init[
+                                         self.config.data.channels * (i_frame + 1):self.config.data.channels * (
+                                                     i_frame + 1 + self.config.data.num_frames)]
                         else:
-                            real_init1 = real_init[(i_frame+1)*self.config.data.channels*self.config.data.num_frames:(i_frame+2)*self.config.data.channels*self.config.data.num_frames]
+                            real_init1 = real_init[
+                                         (i_frame + 1) * self.config.data.channels * self.config.data.num_frames:(
+                                                                                                                             i_frame + 2) * self.config.data.channels * self.config.data.num_frames]
                         if self.version == "SMLD":
                             z = torch.randn_like(real_init1)
                             init_samples = real_init1 + float(self.config.model.sigma_begin) * z
@@ -1736,12 +1884,13 @@ class NCSNRunner():
                     else:
                         init_samples = z
 
-                pred2 = torch.cat(pred_samples, dim=1)[:, :self.config.data.channels*num_frames_pred]
+                pred2 = torch.cat(pred_samples, dim=1)[:, :self.config.data.channels * num_frames_pred]
                 pred2 = inverse_data_transform(self.config, pred2)
                 # pred has length of multiple of n (because we repeat data sample n times)
 
-                if real.shape[1] < pred.shape[1]: # We cannot calculate MSE, PSNR, SSIM
-                    print("-------- Warning: Cannot calculate metrics because predicting beyond the training data range --------")
+                if real.shape[1] < pred.shape[1]:  # We cannot calculate MSE, PSNR, SSIM
+                    print(
+                        "-------- Warning: Cannot calculate metrics because predicting beyond the training data range --------")
                     for ii in range(len(pred)):
                         vid_mse.append(0)
                         vid_ssim.append(0)
@@ -1753,8 +1902,10 @@ class NCSNRunner():
                         for jj in range(num_frames_pred):
 
                             # MSE (and PSNR)
-                            pred_ij = pred2[ii, (self.config.data.channels*jj):(self.config.data.channels*jj + self.config.data.channels), :, :]
-                            real_ij = real2[ii, (self.config.data.channels*jj):(self.config.data.channels*jj + self.config.data.channels), :, :]
+                            pred_ij = pred2[ii, (self.config.data.channels * jj):(
+                                        self.config.data.channels * jj + self.config.data.channels), :, :]
+                            real_ij = real2[ii, (self.config.data.channels * jj):(
+                                        self.config.data.channels * jj + self.config.data.channels), :, :]
                             mse += F.mse_loss(real_ij, pred_ij)
 
                             pred_ij_pil = Transforms.ToPILImage()(pred_ij).convert("RGB")
@@ -1765,9 +1916,12 @@ class NCSNRunner():
                             real_ij_np_grey = np.asarray(real_ij_pil.convert('L'))
                             if self.config.data.dataset.upper() == "STOCHASTICMOVINGMNIST" or self.config.data.dataset.upper() == "MOVINGMNIST":
                                 # ssim is the only metric extremely sensitive to gray being compared to b/w 
-                                pred_ij_np_grey = np.asarray(Transforms.ToPILImage()(torch.round(pred_ij)).convert("RGB").convert('L'))
-                                real_ij_np_grey = np.asarray(Transforms.ToPILImage()(torch.round(real_ij)).convert("RGB").convert('L'))
-                            avg_ssim += ssim(pred_ij_np_grey, real_ij_np_grey, data_range=255, gaussian_weights=True, use_sample_covariance=False)
+                                pred_ij_np_grey = np.asarray(
+                                    Transforms.ToPILImage()(torch.round(pred_ij)).convert("RGB").convert('L'))
+                                real_ij_np_grey = np.asarray(
+                                    Transforms.ToPILImage()(torch.round(real_ij)).convert("RGB").convert('L'))
+                            avg_ssim += ssim(pred_ij_np_grey, real_ij_np_grey, data_range=255, gaussian_weights=True,
+                                             use_sample_covariance=False)
 
                             # Calculate LPIPS
                             pred_ij_LPIPS = T2(pred_ij_pil).unsqueeze(0).to(self.config.device)
@@ -1793,15 +1947,17 @@ class NCSNRunner():
                     # Else, run only 1 iteration, and make only num_frames
                     num_frames_pred = self.config.data.num_frames_cond + self.config.sampling.num_frames_pred
 
-                    logging.info(f"GENERATING (Uncond) {num_frames_pred} frames, using a {self.config.data.num_frames} frame model (conditioned on {self.config.data.num_frames_cond} cond + {self.config.data.num_frames_future} futr frames), subsample={getattr(self.config.sampling, 'subsample', None)}, preds_per_test={preds_per_test}")
+                    logging.info(
+                        f"GENERATING (Uncond) {num_frames_pred} frames, using a {self.config.data.num_frames} frame model (conditioned on {self.config.data.num_frames_cond} cond + {self.config.data.num_frames_future} futr frames), subsample={getattr(self.config.sampling, 'subsample', None)}, preds_per_test={preds_per_test}")
 
                     # We mask cond
                     _, cond_fvd, cond_mask_fvd = conditioning_fn(self.config, real_, num_frames_pred=num_frames_pred,
-                                                                 prob_mask_cond=1.0, prob_mask_future=1.0, conditional=conditional)
+                                                                 prob_mask_cond=1.0, prob_mask_future=1.0,
+                                                                 conditional=conditional)
                     cond_fvd = cond_fvd.to(self.config.device)
 
                     # z
-                    init_samples_shape = (cond_fvd.shape[0], self.config.data.channels*self.config.data.num_frames,
+                    init_samples_shape = (cond_fvd.shape[0], self.config.data.channels * self.config.data.num_frames,
                                           self.config.data.image_size, self.config.data.image_size)
                     if self.version == "SMLD":
                         z = torch.rand(init_samples_shape, device=self.config.device)
@@ -1809,8 +1965,9 @@ class NCSNRunner():
                     elif self.version == "DDPM" or self.version == "DDIM" or self.version == "FPNDM":
                         if getattr(self.config.model, 'gamma', False):
                             used_k, used_theta = net.k_cum[0], net.theta_t[0]
-                            z = Gamma(torch.full(init_samples_shape, used_k), torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
-                            z = z - used_k*used_theta
+                            z = Gamma(torch.full(init_samples_shape, used_k),
+                                      torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
+                            z = z - used_k * used_theta
                         else:
                             z = torch.randn(init_samples_shape, device=self.config.device)
                             # z = data_transform(self.config, z)
@@ -1821,13 +1978,15 @@ class NCSNRunner():
                             real_init, _ = next(data_iter2)
                         except StopIteration:
                             if self.config.data.dataset.upper() == 'FFHQ':
-                                dataloader2 = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size, self.config.data.image_size)
+                                dataloader2 = FFHQ_TFRecordsDataLoader([self.args.data_path],
+                                                                       self.config.sampling.batch_size,
+                                                                       self.config.data.image_size)
                             data_iter2 = iter(dataloader2)
                             real_init, _ = next(data_iter2)
                         real_init = data_transform(self.config, real_init)
                         real_init, _, _ = conditioning_fn(self.config, real_init, conditional=conditional)
                         real_init = real_init.to(self.config.device)
-                        real_init1 = real_init[:, :self.config.data.channels*self.config.data.num_frames]
+                        real_init1 = real_init[:, :self.config.data.channels * self.config.data.num_frames]
                         if self.version == "SMLD":
                             z = torch.randn_like(real_init1)
                             init_samples = real_init1 + float(self.config.model.sigma_begin) * z
@@ -1847,15 +2006,18 @@ class NCSNRunner():
                     for i_frame in tqdm(range(n_iter_frames), desc="Generating video frames"):
 
                         # Generate samples
-                        gen_samples = sampler(init_samples if i_frame==0 or getattr(self.config.sampling, 'init_prev_t', -1) <= 0 else gen_samples,
-                                              scorenet, cond=cond_fvd, cond_mask=cond_mask_fvd,
-                                              n_steps_each=self.config.sampling.n_steps_each, step_lr=self.config.sampling.step_lr,
-                                              verbose=True if not train else False, final_only=True, denoise=self.config.sampling.denoise,
-                                              subsample_steps=getattr(self.config.sampling, 'subsample', None),
-                                              clip_before=getattr(self.config.sampling, 'clip_before', True),
-                                              t_min=getattr(self.config.sampling, 'init_prev_t', -1), log=True if not train else False,
-                                              gamma=getattr(self.config.model, 'gamma', False))
-                        gen_samples = gen_samples[-1].reshape(gen_samples[-1].shape[0], self.config.data.channels*self.config.data.num_frames,
+                        gen_samples = sampler(
+                            init_samples if i_frame == 0 or getattr(self.config.sampling, 'init_prev_t',
+                                                                    -1) <= 0 else gen_samples,
+                            scorenet, cond=cond_fvd, cond_mask=cond_mask_fvd,
+                            n_steps_each=self.config.sampling.n_steps_each, step_lr=self.config.sampling.step_lr,
+                            verbose=True if not train else False, final_only=True, denoise=self.config.sampling.denoise,
+                            subsample_steps=getattr(self.config.sampling, 'subsample', None),
+                            clip_before=getattr(self.config.sampling, 'clip_before', True),
+                            t_min=getattr(self.config.sampling, 'init_prev_t', -1), log=True if not train else False,
+                            gamma=getattr(self.config.model, 'gamma', False))
+                        gen_samples = gen_samples[-1].reshape(gen_samples[-1].shape[0],
+                                                              self.config.data.channels * self.config.data.num_frames,
                                                               self.config.data.image_size, self.config.data.image_size)
                         pred_samples.append(gen_samples.to('cpu'))
 
@@ -1865,22 +2027,29 @@ class NCSNRunner():
                         # cond -> [cond[n:], real[:n]]
                         if future == 0:
                             if getattr(self.config.sampling, 'one_frame_at_a_time', False):
-                                cond_fvd = torch.cat([cond_fvd[:, self.config.data.channels:], gen_samples[:, :self.config.data.channels]], dim=1)
+                                cond_fvd = torch.cat([cond_fvd[:, self.config.data.channels:],
+                                                      gen_samples[:, :self.config.data.channels]], dim=1)
                             else:
-                                cond_fvd = torch.cat([cond_fvd[:, self.config.data.channels*self.config.data.num_frames:],
-                                                      gen_samples[:, self.config.data.channels*max(0, self.config.data.num_frames - self.config.data.num_frames_cond):]
-                                                     ], dim=1)
+                                cond_fvd = torch.cat(
+                                    [cond_fvd[:, self.config.data.channels * self.config.data.num_frames:],
+                                     gen_samples[:, self.config.data.channels * max(0,
+                                                                                    self.config.data.num_frames - self.config.data.num_frames_cond):]
+                                     ], dim=1)
                         else:
                             if getattr(self.config.sampling, 'one_frame_at_a_time', False):
                                 cond_fvd = torch.cat([cond_fvd[:, self.config.data.channels:],
                                                       gen_samples[:, :self.config.data.channels],
-                                                      cond_fvd[:, -self.config.data.channels*future:]   # future frames are always there, but always 0
-                                                     ], dim=1)
+                                                      cond_fvd[:, -self.config.data.channels * future:]
+                                                      # future frames are always there, but always 0
+                                                      ], dim=1)
                             else:
-                                cond_fvd = torch.cat([cond_fvd[:, self.config.data.channels*self.config.data.num_frames:-self.config.data.channels*future],
-                                                      gen_samples[:, self.config.data.channels*max(0, self.config.data.num_frames - self.config.data.num_frames_cond):],
-                                                      cond_fvd[:, -self.config.data.channels*future:]   # future frames are always there, but always 0
-                                                     ], dim=1)
+                                cond_fvd = torch.cat([cond_fvd[:,
+                                                      self.config.data.channels * self.config.data.num_frames:-self.config.data.channels * future],
+                                                      gen_samples[:, self.config.data.channels * max(0,
+                                                                                                     self.config.data.num_frames - self.config.data.num_frames_cond):],
+                                                      cond_fvd[:, -self.config.data.channels * future:]
+                                                      # future frames are always there, but always 0
+                                                      ], dim=1)
 
                         # Make cond_mask one
                         if i_frame == 0:
@@ -1892,17 +2061,23 @@ class NCSNRunner():
                         elif self.version == "DDPM" or self.version == "DDIM" or self.version == "FPNDM":
                             if getattr(self.config.model, 'gamma', False):
                                 used_k, used_theta = net.k_cum[0], net.theta_t[0]
-                                z = Gamma(torch.full(init_samples_shape, used_k), torch.full(init_samples_shape, 1 / used_theta)).sample().to(self.config.device)
-                                z = z - used_k*used_theta
+                                z = Gamma(torch.full(init_samples_shape, used_k),
+                                          torch.full(init_samples_shape, 1 / used_theta)).sample().to(
+                                    self.config.device)
+                                z = z - used_k * used_theta
                             else:
                                 z = torch.randn(init_samples_shape, device=self.config.device)
 
                         # init_samples
                         if self.config.sampling.data_init:
                             if getattr(self.config.sampling, 'one_frame_at_a_time', False):
-                                real_init1 = real_init[self.config.data.channels*(i_frame+1):self.config.data.channels*(i_frame+1+self.config.data.num_frames)]
+                                real_init1 = real_init[
+                                             self.config.data.channels * (i_frame + 1):self.config.data.channels * (
+                                                         i_frame + 1 + self.config.data.num_frames)]
                             else:
-                                real_init1 = real_init[(i_frame+1)*self.config.data.channels*self.config.data.num_frames:(i_frame+2)*self.config.data.channels*self.config.data.num_frames]
+                                real_init1 = real_init[
+                                             (i_frame + 1) * self.config.data.channels * self.config.data.num_frames:(
+                                                                                                                                 i_frame + 2) * self.config.data.channels * self.config.data.num_frames]
                             if self.version == "SMLD":
                                 z = torch.randn_like(real_init1)
                                 init_samples = real_init1 + float(self.config.model.sigma_begin) * z
@@ -1913,13 +2088,14 @@ class NCSNRunner():
                         else:
                             init_samples = z
 
-                    pred_uncond = torch.cat(pred_samples, dim=1)[:, :self.config.data.channels*num_frames_pred]
+                    pred_uncond = torch.cat(pred_samples, dim=1)[:, :self.config.data.channels * num_frames_pred]
                     pred_uncond = inverse_data_transform(self.config, pred_uncond)
 
                 def to_i3d(x):
-                    x = x.reshape(x.shape[0], -1, self.config.data.channels, self.config.data.image_size, self.config.data.image_size)
+                    x = x.reshape(x.shape[0], -1, self.config.data.channels, self.config.data.image_size,
+                                  self.config.data.image_size)
                     if self.config.data.channels == 1:
-                        x = x.repeat(1, 1, 3, 1, 1) # hack for greyscale images
+                        x = x.repeat(1, 1, 3, 1, 1)  # hack for greyscale images
                     x = x.permute(0, 2, 1, 3, 4)  # BTCHW -> BCTHW
                     return x
 
@@ -1928,45 +2104,47 @@ class NCSNRunner():
                     # real
                     if future == 0:
                         real_fvd = torch.cat([
-                            cond_original[:, :self.config.data.num_frames_cond*self.config.data.channels],
+                            cond_original[:, :self.config.data.num_frames_cond * self.config.data.channels],
                             real
-                        ], dim=1)[::preds_per_test]    # Ignore the repeated ones
+                        ], dim=1)[::preds_per_test]  # Ignore the repeated ones
                     else:
                         real_fvd = torch.cat([
-                            cond_original[:, :self.config.data.num_frames_cond*self.config.data.channels],
+                            cond_original[:, :self.config.data.num_frames_cond * self.config.data.channels],
                             real,
-                            cond_original[:, -future*self.config.data.channels:]
-                        ], dim=1)[::preds_per_test]    # Ignore the repeated ones
+                            cond_original[:, -future * self.config.data.channels:]
+                        ], dim=1)[::preds_per_test]  # Ignore the repeated ones
                     real_fvd = to_i3d(real_fvd)
                     real_embeddings.append(get_fvd_feats(real_fvd, i3d=i3d, device=self.config.device))
 
                     # fake
                     if future == 0:
                         fake_fvd = torch.cat([
-                            cond_original[:, :self.config.data.num_frames_cond*self.config.data.channels], pred], dim=1)
+                            cond_original[:, :self.config.data.num_frames_cond * self.config.data.channels], pred],
+                            dim=1)
                     else:
                         fake_fvd = torch.cat([
-                            cond_original[:, :self.config.data.num_frames_cond*self.config.data.channels],
+                            cond_original[:, :self.config.data.num_frames_cond * self.config.data.channels],
                             pred,
-                            cond_original[:, -future*self.config.data.channels:]
+                            cond_original[:, -future * self.config.data.channels:]
                         ], dim=1)
                     fake_fvd = to_i3d(fake_fvd)
                     fake_embeddings.append(get_fvd_feats(fake_fvd, i3d=i3d, device=self.config.device))
 
                 # fake2 : fvd_cond if fvd was fvd_interp
-                if (second_calc and (calc_fvd2 or calc_fvd3)) and real.shape[1] >= pred.shape[1]: # only cond, but real has all frames req for interp
+                if (second_calc and (calc_fvd2 or calc_fvd3)) and real.shape[1] >= pred.shape[
+                    1]:  # only cond, but real has all frames req for interp
 
                     # real2
                     real_fvd2 = torch.cat([
-                        cond_original2[:, :self.config.data.num_frames_cond*self.config.data.channels],
+                        cond_original2[:, :self.config.data.num_frames_cond * self.config.data.channels],
                         real2
-                    ], dim=1)[::preds_per_test]    # Ignore the repeated ones
+                    ], dim=1)[::preds_per_test]  # Ignore the repeated ones
                     real_fvd2 = to_i3d(real_fvd2)
                     real_embeddings2.append(get_fvd_feats(real_fvd2, i3d=i3d, device=self.config.device))
 
                     # fake2
                     fake_fvd2 = torch.cat([
-                        cond_original2[:, :self.config.data.num_frames_cond*self.config.data.channels],
+                        cond_original2[:, :self.config.data.num_frames_cond * self.config.data.channels],
                         pred2
                     ], dim=1)
                     fake_fvd2 = to_i3d(fake_fvd2)
@@ -1978,20 +2156,24 @@ class NCSNRunner():
                     real_embeddings_uncond.append(real_embeddings2[-1] if second_calc else real_embeddings[-1])
 
                     # fake uncond
-                    fake_fvd_uncond = torch.cat([pred_uncond], dim=1) # We don't want to input the zero-mask
+                    fake_fvd_uncond = torch.cat([pred_uncond], dim=1)  # We don't want to input the zero-mask
                     fake_fvd_uncond = to_i3d(fake_fvd_uncond)
                     fake_embeddings_uncond.append(get_fvd_feats(fake_fvd_uncond, i3d=i3d, device=self.config.device))
 
-            if i == 0 or preds_per_test == 1: # Save first mini-batch or save them all
+            if i == 0 or preds_per_test == 1:  # Save first mini-batch or save them all
                 cond = cond_original
 
                 no_metrics = False
-                if real.shape[1] < pred.shape[1]: # Pad with zeros to prevent bugs
+                if real.shape[1] < pred.shape[1]:  # Pad with zeros to prevent bugs
                     no_metrics = True
-                    real = torch.cat([real, torch.zeros(real.shape[0], pred.shape[1]-real.shape[1], real.shape[2], real.shape[3])], dim=1)
+                    real = torch.cat(
+                        [real, torch.zeros(real.shape[0], pred.shape[1] - real.shape[1], real.shape[2], real.shape[3])],
+                        dim=1)
 
                 if future > 0:
-                    cond, futr = torch.tensor_split(cond, (self.config.data.num_frames_cond*self.config.data.channels,), dim=1)
+                    cond, futr = torch.tensor_split(cond,
+                                                    (self.config.data.num_frames_cond * self.config.data.channels,),
+                                                    dim=1)
 
                 # Save gif
                 gif_frames_cond = []
@@ -1999,105 +2181,125 @@ class NCSNRunner():
                 gif_frames_futr = []
 
                 # cond : # we show conditional frames, and real&pred side-by-side
-                for t in range(cond.shape[1]//self.config.data.channels):
-                    cond_t = cond[:, t*self.config.data.channels:(t+1)*self.config.data.channels]     # BCHW
-                    frame = torch.cat([cond_t, 0.5*torch.ones(*cond_t.shape[:-1], 2), cond_t], dim=-1)
+                for t in range(cond.shape[1] // self.config.data.channels):
+                    cond_t = cond[:, t * self.config.data.channels:(t + 1) * self.config.data.channels]  # BCHW
+                    frame = torch.cat([cond_t, 0.5 * torch.ones(*cond_t.shape[:-1], 2), cond_t], dim=-1)
                     frame = frame.permute(0, 2, 3, 1).numpy()
-                    frame = np.stack([putText(f.copy(), f"{t+1:2d}p", (4, 15), 0, 0.5, (1,1,1), 1) for f in frame])
-                    nrow = ceil(np.sqrt(2*cond.shape[0])/2)
-                    gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6, pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
-                    gif_frames_cond.append((gif_frame*255).astype('uint8'))
+                    frame = np.stack([putText(f.copy(), f"{t + 1:2d}p", (4, 15), 0, 0.5, (1, 1, 1), 1) for f in frame])
+                    nrow = ceil(np.sqrt(2 * cond.shape[0]) / 2)
+                    gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6,
+                                          pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
+                    gif_frames_cond.append((gif_frame * 255).astype('uint8'))
                     if t == 0:
-                        gif_frames_cond.append((gif_frame*255).astype('uint8'))
+                        gif_frames_cond.append((gif_frame * 255).astype('uint8'))
                     del frame, gif_frame
 
                 # pred
-                for t in range(pred.shape[1]//self.config.data.channels):
-                    real_t = real[:, t*self.config.data.channels:(t+1)*self.config.data.channels]     # BCHW
-                    pred_t = pred[:, t*self.config.data.channels:(t+1)*self.config.data.channels]     # BCHW
-                    frame = torch.cat([real_t, 0.5*torch.ones(*pred_t.shape[:-1], 2), pred_t], dim=-1)
+                for t in range(pred.shape[1] // self.config.data.channels):
+                    real_t = real[:, t * self.config.data.channels:(t + 1) * self.config.data.channels]  # BCHW
+                    pred_t = pred[:, t * self.config.data.channels:(t + 1) * self.config.data.channels]  # BCHW
+                    frame = torch.cat([real_t, 0.5 * torch.ones(*pred_t.shape[:-1], 2), pred_t], dim=-1)
                     frame = frame.permute(0, 2, 3, 1).numpy()
-                    frame = np.stack([putText(f.copy(), f"{t+1:02d}", (4, 15), 0, 0.5, (1,1,1), 1) for f in frame])
-                    nrow = ceil(np.sqrt(2*pred.shape[0])/2)
-                    gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6, pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
-                    gif_frames_pred.append((gif_frame*255).astype('uint8'))
-                    if t == pred.shape[1]//self.config.data.channels - 1 and future == 0:
-                        gif_frames_pred.append((gif_frame*255).astype('uint8'))
+                    frame = np.stack([putText(f.copy(), f"{t + 1:02d}", (4, 15), 0, 0.5, (1, 1, 1), 1) for f in frame])
+                    nrow = ceil(np.sqrt(2 * pred.shape[0]) / 2)
+                    gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6,
+                                          pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
+                    gif_frames_pred.append((gif_frame * 255).astype('uint8'))
+                    if t == pred.shape[1] // self.config.data.channels - 1 and future == 0:
+                        gif_frames_pred.append((gif_frame * 255).astype('uint8'))
                     del frame, gif_frame
 
                 # pred2
                 if second_calc:
-                    for t in range(pred2.shape[1]//self.config.data.channels):
-                        real_t = real2[:, t*self.config.data.channels:(t+1)*self.config.data.channels]     # BCHW
-                        pred_t = pred2[:, t*self.config.data.channels:(t+1)*self.config.data.channels]     # BCHW
-                        frame = torch.cat([real_t, 0.5*torch.ones(*pred_t.shape[:-1], 2), pred_t], dim=-1)
+                    for t in range(pred2.shape[1] // self.config.data.channels):
+                        real_t = real2[:, t * self.config.data.channels:(t + 1) * self.config.data.channels]  # BCHW
+                        pred_t = pred2[:, t * self.config.data.channels:(t + 1) * self.config.data.channels]  # BCHW
+                        frame = torch.cat([real_t, 0.5 * torch.ones(*pred_t.shape[:-1], 2), pred_t], dim=-1)
                         frame = frame.permute(0, 2, 3, 1).numpy()
-                        frame = np.stack([putText(f.copy(), f"{t+1:02d}", (4, 15), 0, 0.5, (1,1,1), 1) for f in frame])
-                        nrow = ceil(np.sqrt(2*pred.shape[0])/2)
-                        gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6, pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
-                        gif_frames_pred2.append((gif_frame*255).astype('uint8'))
-                        if t == pred2.shape[1]//self.config.data.channels - 1:
-                            gif_frames_pred2.append((gif_frame*255).astype('uint8'))
+                        frame = np.stack(
+                            [putText(f.copy(), f"{t + 1:02d}", (4, 15), 0, 0.5, (1, 1, 1), 1) for f in frame])
+                        nrow = ceil(np.sqrt(2 * pred.shape[0]) / 2)
+                        gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6,
+                                              pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
+                        gif_frames_pred2.append((gif_frame * 255).astype('uint8'))
+                        if t == pred2.shape[1] // self.config.data.channels - 1:
+                            gif_frames_pred2.append((gif_frame * 255).astype('uint8'))
                         del frame, gif_frame
 
                 # pred_uncond
                 if pred_uncond is not None:
-                    for t in range(pred_uncond.shape[1]//self.config.data.channels):
-                        frame = pred_uncond[:, t*self.config.data.channels:(t+1)*self.config.data.channels]     # BCHW
+                    for t in range(pred_uncond.shape[1] // self.config.data.channels):
+                        frame = pred_uncond[:,
+                                t * self.config.data.channels:(t + 1) * self.config.data.channels]  # BCHW
                         frame = frame.permute(0, 2, 3, 1).numpy()
-                        frame = np.stack([putText(f.copy(), f"{t+1:02d}", (4, 15), 0, 0.5, (1,1,1), 1) for f in frame])
-                        nrow = ceil(np.sqrt(2*pred_uncond.shape[0])/2)
-                        gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6, pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
-                        gif_frames_pred3.append((gif_frame*255).astype('uint8'))
-                        if t == pred_uncond.shape[1]//self.config.data.channels - 1:
-                            gif_frames_pred3.append((gif_frame*255).astype('uint8'))
+                        frame = np.stack(
+                            [putText(f.copy(), f"{t + 1:02d}", (4, 15), 0, 0.5, (1, 1, 1), 1) for f in frame])
+                        nrow = ceil(np.sqrt(2 * pred_uncond.shape[0]) / 2)
+                        gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6,
+                                              pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
+                        gif_frames_pred3.append((gif_frame * 255).astype('uint8'))
+                        if t == pred_uncond.shape[1] // self.config.data.channels - 1:
+                            gif_frames_pred3.append((gif_frame * 255).astype('uint8'))
                         del frame, gif_frame
 
                 # futr
-                if future > 0: # if conditional, we show conditional frames, and real&pred, and future frames side-by-side
-                    for t in range(futr.shape[1]//self.config.data.channels):
-                        futr_t = futr[:, t*self.config.data.channels:(t+1)*self.config.data.channels]     # BCHW
-                        frame = torch.cat([futr_t, 0.5*torch.ones(*futr_t.shape[:-1], 2), futr_t], dim=-1)
+                if future > 0:  # if conditional, we show conditional frames, and real&pred, and future frames side-by-side
+                    for t in range(futr.shape[1] // self.config.data.channels):
+                        futr_t = futr[:, t * self.config.data.channels:(t + 1) * self.config.data.channels]  # BCHW
+                        frame = torch.cat([futr_t, 0.5 * torch.ones(*futr_t.shape[:-1], 2), futr_t], dim=-1)
                         frame = frame.permute(0, 2, 3, 1).numpy()
-                        frame = np.stack([putText(f.copy(), f"{t+1:2d}f", (4, 15), 0, 0.5, (1,1,1), 1) for f in frame])
-                        nrow = ceil(np.sqrt(2*futr.shape[0])/2)
-                        gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6, pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
-                        gif_frames_futr.append((gif_frame*255).astype('uint8'))
-                        if t == futr.shape[1]//self.config.data.channels - 1:
-                            gif_frames_futr.append((gif_frame*255).astype('uint8'))
+                        frame = np.stack(
+                            [putText(f.copy(), f"{t + 1:2d}f", (4, 15), 0, 0.5, (1, 1, 1), 1) for f in frame])
+                        nrow = ceil(np.sqrt(2 * futr.shape[0]) / 2)
+                        gif_frame = make_grid(torch.from_numpy(frame).permute(0, 3, 1, 2), nrow=nrow, padding=6,
+                                              pad_value=0.5).permute(1, 2, 0).numpy()  # HWC
+                        gif_frames_futr.append((gif_frame * 255).astype('uint8'))
+                        if t == futr.shape[1] // self.config.data.channels - 1:
+                            gif_frames_futr.append((gif_frame * 255).astype('uint8'))
                         del frame, gif_frame
 
                 # Save gif
-                if self.condp == 0.0 and self.futrf == 0:                           # (1) Prediction
-                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder, f"videos_pred_{ckpt}_{i}.gif"),
+                if self.condp == 0.0 and self.futrf == 0:  # (1) Prediction
+                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder,
+                                                  f"videos_pred_{ckpt}_{i}.gif"),
                                      [*gif_frames_cond, *gif_frames_pred], fps=4)
-                elif self.condp == 0.0 and self.futrf > 0 and self.futrp == 0.0:    # (1) Interpolation
-                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder, f"videos_interp_{ckpt}_{i}.gif"),
+                elif self.condp == 0.0 and self.futrf > 0 and self.futrp == 0.0:  # (1) Interpolation
+                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder,
+                                                  f"videos_interp_{ckpt}_{i}.gif"),
                                      [*gif_frames_cond, *gif_frames_pred, *gif_frames_futr], fps=4)
-                elif self.condp == 0.0 and self.futrf > 0 and self.futrp > 0.0:     # (1) Interp + (2) Pred
-                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder, f"videos_interp_{ckpt}_{i}.gif"),
+                elif self.condp == 0.0 and self.futrf > 0 and self.futrp > 0.0:  # (1) Interp + (2) Pred
+                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder,
+                                                  f"videos_interp_{ckpt}_{i}.gif"),
                                      [*gif_frames_cond, *gif_frames_pred, *gif_frames_futr], fps=4)
-                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder, f"videos_pred_{ckpt}_{i}.gif"),
+                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder,
+                                                  f"videos_pred_{ckpt}_{i}.gif"),
                                      [*gif_frames_cond, *gif_frames_pred2], fps=4)
-                elif self.condp > 0.0 and self.futrf == 0:                         # (1) Pred + (3) Gen
-                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder, f"videos_pred_{ckpt}_{i}.gif"),
+                elif self.condp > 0.0 and self.futrf == 0:  # (1) Pred + (3) Gen
+                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder,
+                                                  f"videos_pred_{ckpt}_{i}.gif"),
                                      [*gif_frames_cond, *gif_frames_pred], fps=4)
                     if len(gif_frames_pred3) > 0:
-                        imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder, f"videos_gen_{ckpt}_{i}.gif"),
+                        imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder,
+                                                      f"videos_gen_{ckpt}_{i}.gif"),
                                          gif_frames_pred3, fps=4)
-                elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and not self.prob_mask_sync:     # (1) Interp + (2) Pred + (3) Gen
-                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder, f"videos_interp_{ckpt}_{i}.gif"),
+                elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and not self.prob_mask_sync:  # (1) Interp + (2) Pred + (3) Gen
+                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder,
+                                                  f"videos_interp_{ckpt}_{i}.gif"),
                                      [*gif_frames_cond, *gif_frames_pred, *gif_frames_futr], fps=4)
-                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder, f"videos_pred_{ckpt}_{i}.gif"),
+                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder,
+                                                  f"videos_pred_{ckpt}_{i}.gif"),
                                      [*gif_frames_cond, *gif_frames_pred2], fps=4)
                     if len(gif_frames_pred3) > 0:
-                        imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder, f"videos_gen_{ckpt}_{i}.gif"),
+                        imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder,
+                                                      f"videos_gen_{ckpt}_{i}.gif"),
                                          gif_frames_pred3, fps=4)
-                elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and self.prob_mask_sync:     # (1) Interp + (3) Gen
-                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder, f"videos_interp_{ckpt}_{i}.gif"),
+                elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and self.prob_mask_sync:  # (1) Interp + (3) Gen
+                    imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder,
+                                                  f"videos_interp_{ckpt}_{i}.gif"),
                                      [*gif_frames_cond, *gif_frames_pred, *gif_frames_futr], fps=4)
                     if len(gif_frames_pred3) > 0:
-                        imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder, f"videos_gen_{ckpt}_{i}.gif"),
+                        imageio.mimwrite(os.path.join(self.args.log_sample_path if train else self.args.video_folder,
+                                                      f"videos_gen_{ckpt}_{i}.gif"),
                                          gif_frames_pred3, fps=4)
 
                 del gif_frames_cond, gif_frames_pred, gif_frames_pred2, gif_frames_pred3, gif_frames_futr
@@ -2114,18 +2316,22 @@ class NCSNRunner():
                     cond_im = stretch_image(cond, self.config.data.channels, self.config.data.image_size)
                     pred_im = stretch_image(pred, self.config.data.channels, self.config.data.image_size)
                     real_im = stretch_image(real, self.config.data.channels, self.config.data.image_size)
-                    padding_hor = 0.5*torch.ones(*real_im.shape[:-1], 2)
+                    padding_hor = 0.5 * torch.ones(*real_im.shape[:-1], 2)
                     real_data = torch.cat([cond_im, padding_hor, real_im], dim=-1)
-                    pred_data = torch.cat([0.5*torch.ones_like(cond_im), padding_hor, pred_im], dim=-1)
-                    padding_ver = 0.5*torch.ones(*real_im.shape[:-2], 2, real_data.shape[-1])
+                    pred_data = torch.cat([0.5 * torch.ones_like(cond_im), padding_hor, pred_im], dim=-1)
+                    padding_ver = 0.5 * torch.ones(*real_im.shape[:-2], 2, real_data.shape[-1])
                     data = torch.cat([real_data, padding_ver, pred_data], dim=-2)
                     # Save
-                    nrow = ceil(np.sqrt((self.config.data.num_frames_cond+self.config.sampling.num_frames_pred)*pred.shape[0])/(self.config.data.num_frames_cond+self.config.sampling.num_frames_pred))
+                    nrow = ceil(np.sqrt(
+                        (self.config.data.num_frames_cond + self.config.sampling.num_frames_pred) * pred.shape[0]) / (
+                                            self.config.data.num_frames_cond + self.config.sampling.num_frames_pred))
                     image_grid = make_grid(data, nrow=nrow, padding=6, pad_value=0.5)
                     if train:
-                        save_image(image_grid, os.path.join(self.args.log_sample_path, f"videos_stretch_pred_{ckpt}_{i}.png"))
+                        save_image(image_grid,
+                                   os.path.join(self.args.log_sample_path, f"videos_stretch_pred_{ckpt}_{i}.png"))
                     else:
-                        save_image(image_grid, os.path.join(self.args.video_folder, f"videos_stretch_pred_{ckpt}_{i}.png"))
+                        save_image(image_grid,
+                                   os.path.join(self.args.video_folder, f"videos_stretch_pred_{ckpt}_{i}.png"))
 
                 def save_interp(pred, real):
                     if train:
@@ -2138,18 +2344,23 @@ class NCSNRunner():
                     pred_im = stretch_image(pred, self.config.data.channels, self.config.data.image_size)
                     real_im = stretch_image(real, self.config.data.channels, self.config.data.image_size)
                     futr_im = stretch_image(futr, self.config.data.channels, self.config.data.image_size)
-                    padding_hor = 0.5*torch.ones(*real_im.shape[:-1], 2)
+                    padding_hor = 0.5 * torch.ones(*real_im.shape[:-1], 2)
                     real_data = torch.cat([cond_im, padding_hor, real_im, padding_hor, futr_im], dim=-1)
-                    pred_data = torch.cat([0.5*torch.ones_like(cond_im), padding_hor, pred_im, padding_hor, 0.5*torch.ones_like(futr_im)], dim=-1)
-                    padding_ver = 0.5*torch.ones(*real_im.shape[:-2], 2, real_data.shape[-1])
+                    pred_data = torch.cat([0.5 * torch.ones_like(cond_im), padding_hor, pred_im, padding_hor,
+                                           0.5 * torch.ones_like(futr_im)], dim=-1)
+                    padding_ver = 0.5 * torch.ones(*real_im.shape[:-2], 2, real_data.shape[-1])
                     data = torch.cat([real_data, padding_ver, pred_data], dim=-2)
                     # Save
-                    nrow = ceil(np.sqrt((self.config.data.num_frames_cond+self.config.sampling.num_frames_pred+future)*pred.shape[0])/(self.config.data.num_frames_cond+self.config.sampling.num_frames_pred+future))
+                    nrow = ceil(np.sqrt(
+                        (self.config.data.num_frames_cond + self.config.sampling.num_frames_pred + future) * pred.shape[
+                            0]) / (self.config.data.num_frames_cond + self.config.sampling.num_frames_pred + future))
                     image_grid = make_grid(data, nrow=nrow, padding=6, pad_value=0.5)
                     if train:
-                        save_image(image_grid, os.path.join(self.args.log_sample_path, f"videos_stretch_interp_{ckpt}_{i}.png"))
+                        save_image(image_grid,
+                                   os.path.join(self.args.log_sample_path, f"videos_stretch_interp_{ckpt}_{i}.png"))
                     else:
-                        save_image(image_grid, os.path.join(self.args.video_folder, f"videos_stretch_interp_{ckpt}_{i}.png"))
+                        save_image(image_grid,
+                                   os.path.join(self.args.video_folder, f"videos_stretch_interp_{ckpt}_{i}.png"))
 
                 def save_gen(pred):
                     if pred is None:
@@ -2160,33 +2371,37 @@ class NCSNRunner():
                         torch.save({"gen": pred}, os.path.join(self.args.video_folder, f"videos_gen_{ckpt}.pt"))
                     data = stretch_image(pred, self.config.data.channels, self.config.data.image_size)
                     # Save
-                    nrow = ceil(np.sqrt((self.config.data.num_frames_cond+self.config.sampling.num_frames_pred)*pred.shape[0])/(self.config.data.num_frames_cond+self.config.sampling.num_frames_pred))
+                    nrow = ceil(np.sqrt(
+                        (self.config.data.num_frames_cond + self.config.sampling.num_frames_pred) * pred.shape[0]) / (
+                                            self.config.data.num_frames_cond + self.config.sampling.num_frames_pred))
                     image_grid = make_grid(data, nrow=nrow, padding=6, pad_value=0.5)
                     if train:
-                        save_image(image_grid, os.path.join(self.args.log_sample_path, f"videos_stretch_gen_{ckpt}_{i}.png"))
+                        save_image(image_grid,
+                                   os.path.join(self.args.log_sample_path, f"videos_stretch_gen_{ckpt}_{i}.png"))
                     else:
-                        save_image(image_grid, os.path.join(self.args.video_folder, f"videos_stretch_gen_{ckpt}_{i}.png"))
+                        save_image(image_grid,
+                                   os.path.join(self.args.video_folder, f"videos_stretch_gen_{ckpt}_{i}.png"))
 
-                if self.condp == 0.0 and self.futrf == 0:                           # (1) Prediction
+                if self.condp == 0.0 and self.futrf == 0:  # (1) Prediction
                     save_pred(pred, real)
 
-                elif self.condp == 0.0 and self.futrf > 0 and self.futrp == 0.0:    # (1) Interpolation
+                elif self.condp == 0.0 and self.futrf > 0 and self.futrp == 0.0:  # (1) Interpolation
                     save_interp(pred, real)
 
-                elif self.condp == 0.0 and self.futrf > 0 and self.futrp > 0.0:     # (1) Interp + (2) Pred
+                elif self.condp == 0.0 and self.futrf > 0 and self.futrp > 0.0:  # (1) Interp + (2) Pred
                     save_interp(pred, real)
                     save_pred(pred2, real2)
 
-                elif self.condp > 0.0 and self.futrf == 0:                         # (1) Pred + (3) Gen
+                elif self.condp > 0.0 and self.futrf == 0:  # (1) Pred + (3) Gen
                     save_pred(pred, real)
                     save_gen(pred_uncond)
 
-                elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and not self.prob_mask_sync:     # (1) Interp + (2) Pred + (3) Gen
+                elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and not self.prob_mask_sync:  # (1) Interp + (2) Pred + (3) Gen
                     save_interp(pred, real)
                     save_pred(pred2, real2)
                     save_gen(pred_uncond)
 
-                elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and self.prob_mask_sync:     # (1) Interp + (2) Pred + (3) Gen
+                elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and self.prob_mask_sync:  # (1) Interp + (2) Pred + (3) Gen
                     save_interp(pred, real)
                     save_gen(pred_uncond)
 
@@ -2210,10 +2425,10 @@ class NCSNRunner():
         avg_lpips, std_lpips, conf95_lpips = image_metric_stuff(lpips_list)
 
         vid_metrics = {'ckpt': ckpt, 'preds_per_test': preds_per_test,
-                        'mse': avg_mse, 'mse_std': std_mse, 'mse_conf95': conf95_mse,
-                        'psnr': avg_psnr, 'psnr_std': std_psnr, 'psnr_conf95': conf95_psnr,
-                        'ssim': avg_ssim, 'ssim_std': std_ssim, 'ssim_conf95': conf95_ssim,
-                        'lpips': avg_lpips, 'lpips_std': std_lpips, 'lpips_conf95': conf95_lpips}
+                       'mse': avg_mse, 'mse_std': std_mse, 'mse_conf95': conf95_mse,
+                       'psnr': avg_psnr, 'psnr_std': std_psnr, 'psnr_conf95': conf95_psnr,
+                       'ssim': avg_ssim, 'ssim_std': std_ssim, 'ssim_conf95': conf95_ssim,
+                       'lpips': avg_lpips, 'lpips_std': std_lpips, 'lpips_conf95': conf95_lpips}
 
         def fvd_stuff(fake_embeddings, real_embeddings):
             avg_fvd = frechet_distance(fake_embeddings, real_embeddings)
@@ -2223,8 +2438,9 @@ class NCSNRunner():
                 trajs = np.random.choice(np.arange(preds_per_test), (preds_per_test,), replace=False)
                 for traj in trajs:
                     fvds_list.append(frechet_distance(fake_embeddings[traj::preds_per_test], real_embeddings))
-                fvd_traj_mean, fvd_traj_std  = float(np.mean(fvds_list)), float(np.std(fvds_list))
-                fvd_traj_conf95 = fvd_traj_mean - float(st.norm.interval(alpha=0.95, loc=fvd_traj_mean, scale=st.sem(fvds_list))[0])
+                fvd_traj_mean, fvd_traj_std = float(np.mean(fvds_list)), float(np.std(fvds_list))
+                fvd_traj_conf95 = fvd_traj_mean - float(
+                    st.norm.interval(alpha=0.95, loc=fvd_traj_mean, scale=st.sem(fvds_list))[0])
             else:
                 fvd_traj_mean, fvd_traj_std, fvd_traj_conf95 = -1, -1, -1
             return avg_fvd, fvd_traj_mean, fvd_traj_std, fvd_traj_conf95
@@ -2237,7 +2453,8 @@ class NCSNRunner():
                 real_embeddings = np.concatenate(real_embeddings)
                 fake_embeddings = np.concatenate(fake_embeddings)
                 avg_fvd, fvd_traj_mean, fvd_traj_std, fvd_traj_conf95 = fvd_stuff(fake_embeddings, real_embeddings)
-                vid_metrics.update({'fvd': avg_fvd, 'fvd_traj_mean': fvd_traj_mean, 'fvd_traj_std': fvd_traj_std, 'fvd_traj_conf95': fvd_traj_conf95})
+                vid_metrics.update({'fvd': avg_fvd, 'fvd_traj_mean': fvd_traj_mean, 'fvd_traj_std': fvd_traj_std,
+                                    'fvd_traj_conf95': fvd_traj_conf95})
 
         if second_calc:
             mse2 = np.array(vid_mse2).reshape(-1, preds_per_test).min(-1)
@@ -2259,15 +2476,19 @@ class NCSNRunner():
             if calc_fvd2:
                 real_embeddings2 = np.concatenate(real_embeddings2)
                 fake_embeddings2 = np.concatenate(fake_embeddings2)
-                avg_fvd2, fvd2_traj_mean, fvd2_traj_std, fvd2_traj_conf95 = fvd_stuff(fake_embeddings2, real_embeddings2)
-                vid_metrics.update({'fvd2': avg_fvd2, 'fvd2_traj_mean': fvd2_traj_mean, 'fvd2_traj_std': fvd2_traj_std, 'fvd2_traj_conf95': fvd2_traj_conf95})
+                avg_fvd2, fvd2_traj_mean, fvd2_traj_std, fvd2_traj_conf95 = fvd_stuff(fake_embeddings2,
+                                                                                      real_embeddings2)
+                vid_metrics.update({'fvd2': avg_fvd2, 'fvd2_traj_mean': fvd2_traj_mean, 'fvd2_traj_std': fvd2_traj_std,
+                                    'fvd2_traj_conf95': fvd2_traj_conf95})
 
         # (3) uncond
         if calc_fvd3:
             real_embeddings_uncond = np.concatenate(real_embeddings_uncond)
             fake_embeddings_uncond = np.concatenate(fake_embeddings_uncond)
-            avg_fvd3, fvd3_traj_mean, fvd3_traj_std, fvd3_traj_conf95 = fvd_stuff(fake_embeddings_uncond, real_embeddings_uncond)
-            vid_metrics.update({'fvd3': avg_fvd3, 'fvd3_traj_mean': fvd3_traj_mean, 'fvd3_traj_std': fvd3_traj_std, 'fvd3_traj_conf95': fvd3_traj_conf95})
+            avg_fvd3, fvd3_traj_mean, fvd3_traj_std, fvd3_traj_conf95 = fvd_stuff(fake_embeddings_uncond,
+                                                                                  real_embeddings_uncond)
+            vid_metrics.update({'fvd3': avg_fvd3, 'fvd3_traj_mean': fvd3_traj_mean, 'fvd3_traj_std': fvd3_traj_std,
+                                'fvd3_traj_conf95': fvd3_traj_conf95})
 
         if not train and (calc_fvd1 or calc_fvd2 or calc_fvd3):
             np.savez(os.path.join(self.args.video_folder, f"video_embeddings_{ckpt}.npz"),
@@ -2279,10 +2500,13 @@ class NCSNRunner():
                      fake_embeddings3=fake_embeddings_uncond)
 
         if train:
-            elapsed = str(datetime.timedelta(seconds=(time.time() - self.start_time)) + datetime.timedelta(seconds=self.time_elapsed_prev*3600))[:-3]
+            elapsed = str(datetime.timedelta(seconds=(time.time() - self.start_time)) + datetime.timedelta(
+                seconds=self.time_elapsed_prev * 3600))[:-3]
         else:
             elapsed = str(datetime.timedelta(seconds=(time.time() - self.start_time)))[:-3]
-        format_p = lambda dd : ", ".join([f"{k}:{v:.4f}" if k != 'ckpt' and k != 'preds_per_test' and k != 'time' else f"{k}:{v:7d}" if k == 'ckpt' else f"{k}:{v:3d}" if k == 'preds_per_test' else f"{k}:{v}" for k, v in dd.items()])
+        format_p = lambda dd: ", ".join([
+                                            f"{k}:{v:.4f}" if k != 'ckpt' and k != 'preds_per_test' and k != 'time' else f"{k}:{v:7d}" if k == 'ckpt' else f"{k}:{v:3d}" if k == 'preds_per_test' else f"{k}:{v}"
+                                            for k, v in dd.items()])
         logging.info(f"elapsed: {elapsed}, {format_p(vid_metrics)}")
         logging.info(f"elapsed: {elapsed}, mem:{get_proc_mem():.03f}GB, GPUmem: {get_GPU_mem():.03f}GB")
 
@@ -2291,79 +2515,145 @@ class NCSNRunner():
 
         else:
 
-            logging.info(f"elapsed: {elapsed}, Writing metrics to {os.path.join(self.args.video_folder, 'vid_metrics.yml')}")
+            logging.info(
+                f"elapsed: {elapsed}, Writing metrics to {os.path.join(self.args.video_folder, 'vid_metrics.yml')}")
             vid_metrics['time'] = elapsed
 
-            if self.condp == 0.0 and self.futrf == 0:                           # (1) Prediction
+            if self.condp == 0.0 and self.futrf == 0:  # (1) Prediction
 
-                vid_metrics['pred_mse'], vid_metrics['pred_psnr'], vid_metrics['pred_ssim'], vid_metrics['pred_lpips'] = vid_metrics['mse'], vid_metrics['psnr'], vid_metrics['ssim'], vid_metrics['lpips']
-                vid_metrics['pred_mse_std'], vid_metrics['pred_psnr_std'], vid_metrics['pred_ssim_std'], vid_metrics['pred_lpips_std'] = vid_metrics['mse_std'], vid_metrics['psnr_std'], vid_metrics['ssim_std'], vid_metrics['lpips_std']
-                vid_metrics['pred_mse_conf95'], vid_metrics['pred_psnr_conf95'], vid_metrics['pred_ssim_conf95'], vid_metrics['pred_lpips_conf95'] = vid_metrics['mse_conf95'], vid_metrics['psnr_conf95'], vid_metrics['ssim_conf95'], vid_metrics['lpips_conf95']
+                vid_metrics['pred_mse'], vid_metrics['pred_psnr'], vid_metrics['pred_ssim'], vid_metrics['pred_lpips'] = \
+                vid_metrics['mse'], vid_metrics['psnr'], vid_metrics['ssim'], vid_metrics['lpips']
+                vid_metrics['pred_mse_std'], vid_metrics['pred_psnr_std'], vid_metrics['pred_ssim_std'], vid_metrics[
+                    'pred_lpips_std'] = vid_metrics['mse_std'], vid_metrics['psnr_std'], vid_metrics['ssim_std'], \
+                                        vid_metrics['lpips_std']
+                vid_metrics['pred_mse_conf95'], vid_metrics['pred_psnr_conf95'], vid_metrics['pred_ssim_conf95'], \
+                vid_metrics['pred_lpips_conf95'] = vid_metrics['mse_conf95'], vid_metrics['psnr_conf95'], vid_metrics[
+                    'ssim_conf95'], vid_metrics['lpips_conf95']
                 if calc_fvd1:
-                    vid_metrics['pred_fvd'], vid_metrics['pred_fvd_traj_mean'], vid_metrics['pred_fvd_traj_std'], vid_metrics['pred_fvd_traj_conf95'] = vid_metrics['fvd'], vid_metrics['fvd_traj_mean'], vid_metrics['fvd_traj_std'], vid_metrics['fvd_traj_conf95']
+                    vid_metrics['pred_fvd'], vid_metrics['pred_fvd_traj_mean'], vid_metrics['pred_fvd_traj_std'], \
+                    vid_metrics['pred_fvd_traj_conf95'] = vid_metrics['fvd'], vid_metrics['fvd_traj_mean'], vid_metrics[
+                        'fvd_traj_std'], vid_metrics['fvd_traj_conf95']
 
-            elif self.condp == 0.0 and self.futrf > 0 and self.futrp == 0.0:    # (1) Interpolation
+            elif self.condp == 0.0 and self.futrf > 0 and self.futrp == 0.0:  # (1) Interpolation
 
-                vid_metrics['interp_mse'], vid_metrics['interp_psnr'], vid_metrics['interp_ssim'], vid_metrics['interp_lpips'] = vid_metrics['mse'], vid_metrics['psnr'], vid_metrics['ssim'], vid_metrics['lpips']
-                vid_metrics['interp_mse_std'], vid_metrics['interp_psnr_std'], vid_metrics['interp_ssim_std'], vid_metrics['interp_lpips_std'] = vid_metrics['mse_std'], vid_metrics['psnr_std'], vid_metrics['ssim_std'], vid_metrics['lpips_std']
-                vid_metrics['interp_mse_conf95'], vid_metrics['interp_psnr_conf95'], vid_metrics['interp_ssim_conf95'], vid_metrics['interp_lpips_conf95'] = vid_metrics['mse_conf95'], vid_metrics['psnr_conf95'], vid_metrics['ssim_conf95'], vid_metrics['lpips_conf95']
+                vid_metrics['interp_mse'], vid_metrics['interp_psnr'], vid_metrics['interp_ssim'], vid_metrics[
+                    'interp_lpips'] = vid_metrics['mse'], vid_metrics['psnr'], vid_metrics['ssim'], vid_metrics['lpips']
+                vid_metrics['interp_mse_std'], vid_metrics['interp_psnr_std'], vid_metrics['interp_ssim_std'], \
+                vid_metrics['interp_lpips_std'] = vid_metrics['mse_std'], vid_metrics['psnr_std'], vid_metrics[
+                    'ssim_std'], vid_metrics['lpips_std']
+                vid_metrics['interp_mse_conf95'], vid_metrics['interp_psnr_conf95'], vid_metrics['interp_ssim_conf95'], \
+                vid_metrics['interp_lpips_conf95'] = vid_metrics['mse_conf95'], vid_metrics['psnr_conf95'], vid_metrics[
+                    'ssim_conf95'], vid_metrics['lpips_conf95']
                 if calc_fvd1:
-                    vid_metrics['interp_fvd'], vid_metrics['interp_fvd_traj_mean'], vid_metrics['interp_fvd_traj_std'], vid_metrics['interp_fvd_traj_conf95'] = vid_metrics['fvd'], vid_metrics['fvd_traj_mean'], vid_metrics['fvd_traj_std'], vid_metrics['fvd_traj_conf95']
+                    vid_metrics['interp_fvd'], vid_metrics['interp_fvd_traj_mean'], vid_metrics['interp_fvd_traj_std'], \
+                    vid_metrics['interp_fvd_traj_conf95'] = vid_metrics['fvd'], vid_metrics['fvd_traj_mean'], \
+                                                            vid_metrics['fvd_traj_std'], vid_metrics['fvd_traj_conf95']
 
-            elif self.condp == 0.0 and self.futrf > 0 and self.futrp > 0.0:     # (1) Interp + (2) Pred
+            elif self.condp == 0.0 and self.futrf > 0 and self.futrp > 0.0:  # (1) Interp + (2) Pred
 
-                vid_metrics['interp_mse'], vid_metrics['interp_psnr'], vid_metrics['interp_ssim'], vid_metrics['interp_lpips'] = vid_metrics['mse'], vid_metrics['psnr'], vid_metrics['ssim'], vid_metrics['lpips']
-                vid_metrics['interp_mse_std'], vid_metrics['interp_psnr_std'], vid_metrics['interp_ssim_std'], vid_metrics['interp_lpips_std'] = vid_metrics['mse_std'], vid_metrics['psnr_std'], vid_metrics['ssim_std'], vid_metrics['lpips_std']
-                vid_metrics['interp_mse_conf95'], vid_metrics['interp_psnr_conf95'], vid_metrics['interp_ssim_conf95'], vid_metrics['interp_lpips_conf95'] = vid_metrics['mse_conf95'], vid_metrics['psnr_conf95'], vid_metrics['ssim_conf95'], vid_metrics['lpips_conf95']
+                vid_metrics['interp_mse'], vid_metrics['interp_psnr'], vid_metrics['interp_ssim'], vid_metrics[
+                    'interp_lpips'] = vid_metrics['mse'], vid_metrics['psnr'], vid_metrics['ssim'], vid_metrics['lpips']
+                vid_metrics['interp_mse_std'], vid_metrics['interp_psnr_std'], vid_metrics['interp_ssim_std'], \
+                vid_metrics['interp_lpips_std'] = vid_metrics['mse_std'], vid_metrics['psnr_std'], vid_metrics[
+                    'ssim_std'], vid_metrics['lpips_std']
+                vid_metrics['interp_mse_conf95'], vid_metrics['interp_psnr_conf95'], vid_metrics['interp_ssim_conf95'], \
+                vid_metrics['interp_lpips_conf95'] = vid_metrics['mse_conf95'], vid_metrics['psnr_conf95'], vid_metrics[
+                    'ssim_conf95'], vid_metrics['lpips_conf95']
                 if calc_fvd1:
-                    vid_metrics['interp_fvd'], vid_metrics['interp_fvd_traj_mean'], vid_metrics['interp_fvd_traj_std'], vid_metrics['interp_fvd_traj_conf95'] = vid_metrics['fvd'], vid_metrics['fvd_traj_mean'], vid_metrics['fvd_traj_std'], vid_metrics['fvd_traj_conf95']
+                    vid_metrics['interp_fvd'], vid_metrics['interp_fvd_traj_mean'], vid_metrics['interp_fvd_traj_std'], \
+                    vid_metrics['interp_fvd_traj_conf95'] = vid_metrics['fvd'], vid_metrics['fvd_traj_mean'], \
+                                                            vid_metrics['fvd_traj_std'], vid_metrics['fvd_traj_conf95']
 
                 if second_calc:
-                    vid_metrics['pred_mse'], vid_metrics['pred_psnr'], vid_metrics['pred_ssim'], vid_metrics['pred_lpips'] = vid_metrics['mse2'], vid_metrics['psnr2'], vid_metrics['ssim2'], vid_metrics['lpips2']
-                    vid_metrics['pred_mse_std'], vid_metrics['pred_psnr_std'], vid_metrics['pred_ssim_std'], vid_metrics['pred_lpips_std'] = vid_metrics['mse2_std'], vid_metrics['psnr2_std'], vid_metrics['ssim2_std'], vid_metrics['lpips2_std']
-                    vid_metrics['pred_mse_conf95'], vid_metrics['pred_psnr_conf95'], vid_metrics['pred_ssim_conf95'], vid_metrics['pred_lpips_conf95'] = vid_metrics['mse2_conf95'], vid_metrics['psnr2_conf95'], vid_metrics['ssim2_conf95'], vid_metrics['lpips2_conf95']
+                    vid_metrics['pred_mse'], vid_metrics['pred_psnr'], vid_metrics['pred_ssim'], vid_metrics[
+                        'pred_lpips'] = vid_metrics['mse2'], vid_metrics['psnr2'], vid_metrics['ssim2'], vid_metrics[
+                        'lpips2']
+                    vid_metrics['pred_mse_std'], vid_metrics['pred_psnr_std'], vid_metrics['pred_ssim_std'], \
+                    vid_metrics['pred_lpips_std'] = vid_metrics['mse2_std'], vid_metrics['psnr2_std'], vid_metrics[
+                        'ssim2_std'], vid_metrics['lpips2_std']
+                    vid_metrics['pred_mse_conf95'], vid_metrics['pred_psnr_conf95'], vid_metrics['pred_ssim_conf95'], \
+                    vid_metrics['pred_lpips_conf95'] = vid_metrics['mse2_conf95'], vid_metrics['psnr2_conf95'], \
+                                                       vid_metrics['ssim2_conf95'], vid_metrics['lpips2_conf95']
                 if calc_fvd2:
-                        vid_metrics['pred_fvd'], vid_metrics['pred_fvd_traj_mean'], vid_metrics['pred_fvd_traj_std'], vid_metrics['pred_fvd_traj_conf95'] = vid_metrics['fvd2'], vid_metrics['fvd2_traj_mean'], vid_metrics['fvd2_traj_std'], vid_metrics['fvd2_traj_conf95']
+                    vid_metrics['pred_fvd'], vid_metrics['pred_fvd_traj_mean'], vid_metrics['pred_fvd_traj_std'], \
+                    vid_metrics['pred_fvd_traj_conf95'] = vid_metrics['fvd2'], vid_metrics['fvd2_traj_mean'], \
+                                                          vid_metrics['fvd2_traj_std'], vid_metrics['fvd2_traj_conf95']
 
-            elif self.condp > 0.0 and self.futrf == 0:                         # (1) Pred + (3) Gen
+            elif self.condp > 0.0 and self.futrf == 0:  # (1) Pred + (3) Gen
 
-                vid_metrics['pred_mse'], vid_metrics['pred_psnr'], vid_metrics['pred_ssim'], vid_metrics['pred_lpips'] = vid_metrics['mse'], vid_metrics['psnr'], vid_metrics['ssim'], vid_metrics['lpips']
-                vid_metrics['pred_mse_std'], vid_metrics['pred_psnr_std'], vid_metrics['pred_ssim_std'], vid_metrics['pred_lpips_std'] = vid_metrics['mse_std'], vid_metrics['psnr_std'], vid_metrics['ssim_std'], vid_metrics['lpips_std']
-                vid_metrics['pred_mse_conf95'], vid_metrics['pred_psnr_conf95'], vid_metrics['pred_ssim_conf95'], vid_metrics['pred_lpips_conf95'] = vid_metrics['mse_conf95'], vid_metrics['psnr_conf95'], vid_metrics['ssim_conf95'], vid_metrics['lpips_conf95']
+                vid_metrics['pred_mse'], vid_metrics['pred_psnr'], vid_metrics['pred_ssim'], vid_metrics['pred_lpips'] = \
+                vid_metrics['mse'], vid_metrics['psnr'], vid_metrics['ssim'], vid_metrics['lpips']
+                vid_metrics['pred_mse_std'], vid_metrics['pred_psnr_std'], vid_metrics['pred_ssim_std'], vid_metrics[
+                    'pred_lpips_std'] = vid_metrics['mse_std'], vid_metrics['psnr_std'], vid_metrics['ssim_std'], \
+                                        vid_metrics['lpips_std']
+                vid_metrics['pred_mse_conf95'], vid_metrics['pred_psnr_conf95'], vid_metrics['pred_ssim_conf95'], \
+                vid_metrics['pred_lpips_conf95'] = vid_metrics['mse_conf95'], vid_metrics['psnr_conf95'], vid_metrics[
+                    'ssim_conf95'], vid_metrics['lpips_conf95']
                 if calc_fvd1:
-                    vid_metrics['pred_fvd'], vid_metrics['pred_fvd_traj_mean'], vid_metrics['pred_fvd_traj_std'], vid_metrics['pred_fvd_traj_conf95'] = vid_metrics['fvd'], vid_metrics['fvd_traj_mean'], vid_metrics['fvd_traj_std'], vid_metrics['fvd_traj_conf95']
+                    vid_metrics['pred_fvd'], vid_metrics['pred_fvd_traj_mean'], vid_metrics['pred_fvd_traj_std'], \
+                    vid_metrics['pred_fvd_traj_conf95'] = vid_metrics['fvd'], vid_metrics['fvd_traj_mean'], vid_metrics[
+                        'fvd_traj_std'], vid_metrics['fvd_traj_conf95']
 
                 if calc_fvd3:
-                    vid_metrics['gen_fvd'], vid_metrics['gen_fvd_traj_mean'], vid_metrics['gen_fvd_traj_std'], vid_metrics['gen_fvd_traj_conf95'] = vid_metrics['fvd3'], vid_metrics['fvd3_traj_mean'], vid_metrics['fvd3_traj_std'], vid_metrics['fvd3_traj_conf95']
+                    vid_metrics['gen_fvd'], vid_metrics['gen_fvd_traj_mean'], vid_metrics['gen_fvd_traj_std'], \
+                    vid_metrics['gen_fvd_traj_conf95'] = vid_metrics['fvd3'], vid_metrics['fvd3_traj_mean'], \
+                                                         vid_metrics['fvd3_traj_std'], vid_metrics['fvd3_traj_conf95']
 
-            elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and not self.prob_mask_sync:     # (1) Interp + (2) Pred + (3) Gen
+            elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and not self.prob_mask_sync:  # (1) Interp + (2) Pred + (3) Gen
 
-                vid_metrics['interp_mse'], vid_metrics['interp_psnr'], vid_metrics['interp_ssim'], vid_metrics['interp_lpips'] = vid_metrics['mse'], vid_metrics['psnr'], vid_metrics['ssim'], vid_metrics['lpips']
-                vid_metrics['interp_mse_std'], vid_metrics['interp_psnr_std'], vid_metrics['interp_ssim_std'], vid_metrics['interp_lpips_std'] = vid_metrics['mse_std'], vid_metrics['psnr_std'], vid_metrics['ssim_std'], vid_metrics['lpips_std']
-                vid_metrics['interp_mse_conf95'], vid_metrics['interp_psnr_conf95'], vid_metrics['interp_ssim_conf95'], vid_metrics['interp_lpips_conf95'] = vid_metrics['mse_conf95'], vid_metrics['psnr_conf95'], vid_metrics['ssim_conf95'], vid_metrics['lpips_conf95']
+                vid_metrics['interp_mse'], vid_metrics['interp_psnr'], vid_metrics['interp_ssim'], vid_metrics[
+                    'interp_lpips'] = vid_metrics['mse'], vid_metrics['psnr'], vid_metrics['ssim'], vid_metrics['lpips']
+                vid_metrics['interp_mse_std'], vid_metrics['interp_psnr_std'], vid_metrics['interp_ssim_std'], \
+                vid_metrics['interp_lpips_std'] = vid_metrics['mse_std'], vid_metrics['psnr_std'], vid_metrics[
+                    'ssim_std'], vid_metrics['lpips_std']
+                vid_metrics['interp_mse_conf95'], vid_metrics['interp_psnr_conf95'], vid_metrics['interp_ssim_conf95'], \
+                vid_metrics['interp_lpips_conf95'] = vid_metrics['mse_conf95'], vid_metrics['psnr_conf95'], vid_metrics[
+                    'ssim_conf95'], vid_metrics['lpips_conf95']
                 if calc_fvd1:
-                    vid_metrics['interp_fvd'], vid_metrics['interp_fvd_traj_mean'], vid_metrics['interp_fvd_traj_std'], vid_metrics['interp_fvd_traj_conf95'] = vid_metrics['fvd'], vid_metrics['fvd_traj_mean'], vid_metrics['fvd_traj_std'], vid_metrics['fvd_traj_conf95']
+                    vid_metrics['interp_fvd'], vid_metrics['interp_fvd_traj_mean'], vid_metrics['interp_fvd_traj_std'], \
+                    vid_metrics['interp_fvd_traj_conf95'] = vid_metrics['fvd'], vid_metrics['fvd_traj_mean'], \
+                                                            vid_metrics['fvd_traj_std'], vid_metrics['fvd_traj_conf95']
 
                 if second_calc:
-                    vid_metrics['pred_mse'], vid_metrics['pred_psnr'], vid_metrics['pred_ssim'], vid_metrics['pred_lpips'] = vid_metrics['mse2'], vid_metrics['psnr2'], vid_metrics['ssim2'], vid_metrics['lpips2']
-                    vid_metrics['pred_mse_std'], vid_metrics['pred_psnr_std'], vid_metrics['pred_ssim_std'], vid_metrics['pred_lpips_std'] = vid_metrics['mse2_std'], vid_metrics['psnr2_std'], vid_metrics['ssim2_std'], vid_metrics['lpips2_std']
-                    vid_metrics['pred_mse_conf95'], vid_metrics['pred_psnr_conf95'], vid_metrics['pred_ssim_conf95'], vid_metrics['pred_lpips_conf95'] = vid_metrics['mse2_conf95'], vid_metrics['psnr2_conf95'], vid_metrics['ssim2_conf95'], vid_metrics['lpips2_conf95']
+                    vid_metrics['pred_mse'], vid_metrics['pred_psnr'], vid_metrics['pred_ssim'], vid_metrics[
+                        'pred_lpips'] = vid_metrics['mse2'], vid_metrics['psnr2'], vid_metrics['ssim2'], vid_metrics[
+                        'lpips2']
+                    vid_metrics['pred_mse_std'], vid_metrics['pred_psnr_std'], vid_metrics['pred_ssim_std'], \
+                    vid_metrics['pred_lpips_std'] = vid_metrics['mse2_std'], vid_metrics['psnr2_std'], vid_metrics[
+                        'ssim2_std'], vid_metrics['lpips2_std']
+                    vid_metrics['pred_mse_conf95'], vid_metrics['pred_psnr_conf95'], vid_metrics['pred_ssim_conf95'], \
+                    vid_metrics['pred_lpips_conf95'] = vid_metrics['mse2_conf95'], vid_metrics['psnr2_conf95'], \
+                                                       vid_metrics['ssim2_conf95'], vid_metrics['lpips2_conf95']
                     if calc_fvd2:
-                        vid_metrics['pred_fvd'], vid_metrics['pred_fvd_traj_mean'], vid_metrics['pred_fvd_traj_std'], vid_metrics['pred_fvd_traj_conf95'] = vid_metrics['fvd2'], vid_metrics['fvd2_traj_mean'], vid_metrics['fvd2_traj_std'], vid_metrics['fvd2_traj_conf95']
+                        vid_metrics['pred_fvd'], vid_metrics['pred_fvd_traj_mean'], vid_metrics['pred_fvd_traj_std'], \
+                        vid_metrics['pred_fvd_traj_conf95'] = vid_metrics['fvd2'], vid_metrics['fvd2_traj_mean'], \
+                                                              vid_metrics['fvd2_traj_std'], vid_metrics[
+                                                                  'fvd2_traj_conf95']
 
                 if calc_fvd3:
-                    vid_metrics['gen_fvd'], vid_metrics['gen_fvd_traj_mean'], vid_metrics['gen_fvd_traj_std'], vid_metrics['gen_fvd_traj_conf95'] = vid_metrics['fvd3'], vid_metrics['fvd3_traj_mean'], vid_metrics['fvd3_traj_std'], vid_metrics['fvd3_traj_conf95']
+                    vid_metrics['gen_fvd'], vid_metrics['gen_fvd_traj_mean'], vid_metrics['gen_fvd_traj_std'], \
+                    vid_metrics['gen_fvd_traj_conf95'] = vid_metrics['fvd3'], vid_metrics['fvd3_traj_mean'], \
+                                                         vid_metrics['fvd3_traj_std'], vid_metrics['fvd3_traj_conf95']
 
             elif self.condp > 0.0 and self.futrf > 0 and self.futrp > 0.0 and self.prob_mask_sync:  # (1) Interp + (3) Gen
 
-                vid_metrics['interp_mse'], vid_metrics['interp_psnr'], vid_metrics['interp_ssim'], vid_metrics['interp_lpips'] = vid_metrics['mse'], vid_metrics['psnr'], vid_metrics['ssim'], vid_metrics['lpips']
-                vid_metrics['interp_mse_std'], vid_metrics['interp_psnr_std'], vid_metrics['interp_ssim_std'], vid_metrics['interp_lpips_std'] = vid_metrics['mse_std'], vid_metrics['psnr_std'], vid_metrics['ssim_std'], vid_metrics['lpips_std']
-                vid_metrics['interp_mse_conf95'], vid_metrics['interp_psnr_conf95'], vid_metrics['interp_ssim_conf95'], vid_metrics['interp_lpips_conf95'] = vid_metrics['mse_conf95'], vid_metrics['psnr_conf95'], vid_metrics['ssim_conf95'], vid_metrics['lpips_conf95']
+                vid_metrics['interp_mse'], vid_metrics['interp_psnr'], vid_metrics['interp_ssim'], vid_metrics[
+                    'interp_lpips'] = vid_metrics['mse'], vid_metrics['psnr'], vid_metrics['ssim'], vid_metrics['lpips']
+                vid_metrics['interp_mse_std'], vid_metrics['interp_psnr_std'], vid_metrics['interp_ssim_std'], \
+                vid_metrics['interp_lpips_std'] = vid_metrics['mse_std'], vid_metrics['psnr_std'], vid_metrics[
+                    'ssim_std'], vid_metrics['lpips_std']
+                vid_metrics['interp_mse_conf95'], vid_metrics['interp_psnr_conf95'], vid_metrics['interp_ssim_conf95'], \
+                vid_metrics['interp_lpips_conf95'] = vid_metrics['mse_conf95'], vid_metrics['psnr_conf95'], vid_metrics[
+                    'ssim_conf95'], vid_metrics['lpips_conf95']
                 if calc_fvd1:
-                    vid_metrics['interp_fvd'], vid_metrics['interp_fvd_traj_mean'], vid_metrics['interp_fvd_traj_std'], vid_metrics['interp_fvd_traj_conf95'] = vid_metrics['fvd'], vid_metrics['fvd_traj_mean'], vid_metrics['fvd_traj_std'], vid_metrics['fvd_traj_conf95']
+                    vid_metrics['interp_fvd'], vid_metrics['interp_fvd_traj_mean'], vid_metrics['interp_fvd_traj_std'], \
+                    vid_metrics['interp_fvd_traj_conf95'] = vid_metrics['fvd'], vid_metrics['fvd_traj_mean'], \
+                                                            vid_metrics['fvd_traj_std'], vid_metrics['fvd_traj_conf95']
 
                 if calc_fvd3:
-                    vid_metrics['gen_fvd'], vid_metrics['gen_fvd_traj_mean'], vid_metrics['gen_fvd_traj_std'], vid_metrics['gen_fvd_traj_conf95'] = vid_metrics['fvd3'], vid_metrics['fvd3_traj_mean'], vid_metrics['fvd3_traj_std'], vid_metrics['fvd3_traj_conf95']
+                    vid_metrics['gen_fvd'], vid_metrics['gen_fvd_traj_mean'], vid_metrics['gen_fvd_traj_std'], \
+                    vid_metrics['gen_fvd_traj_conf95'] = vid_metrics['fvd3'], vid_metrics['fvd3_traj_mean'], \
+                                                         vid_metrics['fvd3_traj_std'], vid_metrics['fvd3_traj_conf95']
 
             logging.info(f"elapsed: {elapsed}, {format_p(vid_metrics)}")
             self.write_to_yaml(os.path.join(self.args.video_folder, 'vid_metrics.yml'), vid_metrics)
@@ -2373,7 +2663,8 @@ class NCSNRunner():
         scorenet = torch.nn.DataParallel(scorenet)
 
         if self.config.data.dataset.upper() == 'FFHQ':
-            test_dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.test.batch_size, self.config.data.image_size)
+            test_dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.test.batch_size,
+                                                       self.config.data.image_size)
         else:
             dataset, test_dataset = get_dataset(self.args.data_path, self.config)
             test_dataloader = DataLoader(test_dataset, batch_size=self.config.test.batch_size, shuffle=True,
@@ -2382,8 +2673,9 @@ class NCSNRunner():
         conditional = self.config.data.num_frames_cond > 0
         cond = None
         verbose = False
-        for ckpt in tqdm(range(self.config.test.begin_ckpt, self.config.test.end_ckpt + 1, getattr(self.config.test, "freq", 5000)),
-                              desc="processing ckpt:"):
+        for ckpt in tqdm(range(self.config.test.begin_ckpt, self.config.test.end_ckpt + 1,
+                               getattr(self.config.test, "freq", 5000)),
+                         desc="processing ckpt:"):
             states = torch.load(os.path.join(self.args.log_path, f'checkpoint_{ckpt}.pt'),
                                 map_location=self.config.device)
             if self.config.model.ema:
@@ -2408,15 +2700,18 @@ class NCSNRunner():
 
                 x, cond, cond_mask = conditioning_fn(self.config, x, num_frames_pred=self.config.data.num_frames,
                                                      prob_mask_cond=getattr(self.config.data, 'prob_mask_cond', 0.0),
-                                                     prob_mask_future=getattr(self.config.data, 'prob_mask_future', 0.0),
+                                                     prob_mask_future=getattr(self.config.data, 'prob_mask_future',
+                                                                              0.0),
                                                      conditional=conditional)
 
                 with torch.no_grad():
                     test_loss = anneal_dsm_score_estimation(scorenet, x, labels=None, cond=cond, cond_mask=cond_mask,
+                                                            actions=actions,
                                                             loss_type=getattr(self.config.training, 'loss_type', 'a'),
                                                             gamma=getattr(self.config.model, 'gamma', False),
                                                             L1=getattr(self.config.training, 'L1', False),
-                                                            all_frames=getattr(self.config.model, 'output_all_frames', False))
+                                                            all_frames=getattr(self.config.model, 'output_all_frames',
+                                                                               False))
                     if verbose:
                         logging.info("step: {}, test_loss: {}".format(step, test_loss.item()))
 
@@ -2452,7 +2747,8 @@ class NCSNRunner():
 
         # If FFHQ tfrecord, reset dataloader
         if self.config.data.dataset.upper() == 'FFHQ':
-            dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size, self.config.data.image_size)
+            dataloader = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size,
+                                                  self.config.data.image_size)
         else:
             dataset, _ = get_dataset(self.args.data_path, self.config)
             dataloader = DataLoader(dataset, batch_size=self.config.sampling.batch_size, shuffle=True,
@@ -2463,7 +2759,8 @@ class NCSNRunner():
         cond = None
         if conditional:
             if self.config.data.dataset.upper() == 'FFHQ':
-                dataloader_cond = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size, self.config.data.image_size)
+                dataloader_cond = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size,
+                                                           self.config.data.image_size)
             else:
                 dataset_cond, _ = get_dataset(self.args.data_path, self.config)
                 dataloader_cond = DataLoader(dataset_cond, batch_size=self.config.sampling.batch_size, shuffle=True,
@@ -2471,8 +2768,9 @@ class NCSNRunner():
             data_iter_cond = iter(dataloader_cond)
 
         fids, precisions, recalls = {}, {}, {}
-        for ckpt in tqdm(range(self.config.fast_fid.begin_ckpt, self.config.fast_fid.end_ckpt + 1, getattr(self.config.fast_fid, "freq", 5000)),
-                              desc="Ckpt"):
+        for ckpt in tqdm(range(self.config.fast_fid.begin_ckpt, self.config.fast_fid.end_ckpt + 1,
+                               getattr(self.config.fast_fid, "freq", 5000)),
+                         desc="Ckpt"):
 
             # Check for features
             if os.path.exists(os.path.join(self.args.image_folder, 'feats_{}.pt'.format(ckpt))):
@@ -2506,16 +2804,18 @@ class NCSNRunner():
                 for i in tqdm(range(num_iters), desc="samples"):
 
                     # z
-                    init_samples_shape = (self.config.fast_fid.batch_size, self.config.data.channels*self.config.data.num_frames,
-                                          self.config.data.image_size, self.config.data.image_size)
+                    init_samples_shape = (
+                    self.config.fast_fid.batch_size, self.config.data.channels * self.config.data.num_frames,
+                    self.config.data.image_size, self.config.data.image_size)
                     if self.version == "SMLD":
                         z = torch.rand(init_samples_shape, device=self.config.device)
                         z = data_transform(self.config, z)
                     elif self.version == "DDPM" or self.version == "DDIM" or self.version == "FPNDM":
                         if getattr(self.config.model, 'gamma', False):
                             used_k, used_theta = net.k_cum[0], net.theta_t[0]
-                            z = Gamma(torch.full(real.shape, used_k), torch.full(real.shape, 1 / used_theta)).sample().to(self.config.device)
-                            z = z - used_k*used_theta
+                            z = Gamma(torch.full(real.shape, used_k),
+                                      torch.full(real.shape, 1 / used_theta)).sample().to(self.config.device)
+                            z = z - used_k * used_theta
                         else:
                             z = torch.randn(init_samples_shape, device=self.config.device)
 
@@ -2526,7 +2826,9 @@ class NCSNRunner():
                             samples, _ = next(data_iter_cond)
                         except StopIteration:
                             if self.config.data.dataset.upper() == 'FFHQ':
-                                dataloader_cond = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size, self.config.data.image_size)
+                                dataloader_cond = FFHQ_TFRecordsDataLoader([self.args.data_path],
+                                                                           self.config.sampling.batch_size,
+                                                                           self.config.data.image_size)
                             data_iter_cond = iter(dataloader_cond)
                             samples, _ = next(data_iter_cond)
                         samples = samples.to(self.config.device)
@@ -2543,18 +2845,20 @@ class NCSNRunner():
                                           clip_before=getattr(self.config.sampling, 'clip_before', True), log=True,
                                           gamma=getattr(self.config.model, 'gamma', False)).to('cpu')
 
-                    final_samples = all_samples[-1].reshape(all_samples[-1].shape[0], self.config.data.channels*self.config.data.num_frames,
+                    final_samples = all_samples[-1].reshape(all_samples[-1].shape[0],
+                                                            self.config.data.channels * self.config.data.num_frames,
                                                             self.config.data.image_size, self.config.data.image_size)
                     final_samples = inverse_data_transform(self.config, final_samples)
                     gen_samples = final_samples if i == 0 else torch.cat([gen_samples, final_samples], dim=0)
 
                 # Expand it out
-                gen_samples = gen_samples.reshape(-1, self.config.data.channels, self.config.data.image_size, self.config.data.image_size)
+                gen_samples = gen_samples.reshape(-1, self.config.data.channels, self.config.data.image_size,
+                                                  self.config.data.image_size)
 
                 # Save samples
                 torch.save(gen_samples, os.path.join(self.args.image_folder, 'samples_{}.pt'.format(ckpt)))
-                nrow = ceil(np.sqrt(self.config.data.num_frames*100))
-                image_grid = make_grid(gen_samples[:self.config.data.num_frames*100], nrow=nrow, pad_value=0.5)
+                nrow = ceil(np.sqrt(self.config.data.num_frames * 100))
+                image_grid = make_grid(gen_samples[:self.config.data.num_frames * 100], nrow=nrow, pad_value=0.5)
                 save_image(image_grid, os.path.join(self.args.image_folder, 'image_grid_{}.png'.format(ckpt)))
 
                 save_feats_path = os.path.join(self.args.image_folder, 'feats_{}.pt'.format(ckpt))
@@ -2571,8 +2875,9 @@ class NCSNRunner():
 
             # FID, precision, recall
             else:
-                ds_feats_path = get_feats_path(getattr(self.config.fast_fid, 'dataset', self.config.data.dataset).upper(),
-                                               self.args.feats_dir)
+                ds_feats_path = get_feats_path(
+                    getattr(self.config.fast_fid, 'dataset', self.config.data.dataset).upper(),
+                    self.args.feats_dir)
                 k = self.config.fast_fid.pr_nn_k
                 fid, precision, recall = get_fid_PR(ds_feats_path, gen_samples, self.config.device,
                                                     k=k, save_feats_path=save_feats_path)
@@ -2603,7 +2908,8 @@ class NCSNRunner():
         cond = None
         if conditional:
             if self.config.data.dataset.upper() == 'FFHQ':
-                dataloader_cond = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size, self.config.data.image_size)
+                dataloader_cond = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size,
+                                                           self.config.data.image_size)
             else:
                 dataset_cond, _ = get_dataset(self.args.data_path, self.config)
                 dataloader_cond = DataLoader(dataset_cond, batch_size=self.config.sampling.batch_size, shuffle=True,
@@ -2611,8 +2917,9 @@ class NCSNRunner():
             data_iter_cond = iter(dataloader_cond)
 
         fids = {}
-        for ckpt in tqdm(range(self.config.fast_fid.begin_ckpt, self.config.fast_fid.end_ckpt + 1, self.config.fast_fid.freq),
-                              desc="processing ckpt"):
+        for ckpt in tqdm(
+                range(self.config.fast_fid.begin_ckpt, self.config.fast_fid.end_ckpt + 1, self.config.fast_fid.freq),
+                desc="processing ckpt"):
             begin_ckpt = max(self.config.fast_fid.begin_ckpt, ckpt - (num_ensembles - 1) * self.config.fast_fid.freq)
             index = 0
             for i in range(begin_ckpt, ckpt + self.config.fast_fid.freq, self.config.fast_fid.freq):
@@ -2632,16 +2939,18 @@ class NCSNRunner():
             for i in range(num_iters):
 
                 # z
-                init_samples_shape = (self.config.fast_fid.batch_size, self.config.data.channels*self.config.data.num_frames,
-                                      self.config.data.image_size, self.config.data.image_size)
+                init_samples_shape = (
+                self.config.fast_fid.batch_size, self.config.data.channels * self.config.data.num_frames,
+                self.config.data.image_size, self.config.data.image_size)
                 if self.version == "SMLD":
                     z = torch.rand(init_samples_shape, device=self.config.device)
                     z = data_transform(self.config, z)
                 elif self.version == "DDPM" or self.version == "DDIM" or self.version == "FPNDM":
                     if getattr(self.config.model, 'gamma', False):
                         used_k, used_theta = net.k_cum[0], net.theta_t[0]
-                        z = Gamma(torch.full(real.shape, used_k), torch.full(real.shape, 1 / used_theta)).sample().to(self.config.device)
-                        z = z - used_k*used_theta
+                        z = Gamma(torch.full(real.shape, used_k), torch.full(real.shape, 1 / used_theta)).sample().to(
+                            self.config.device)
+                        z = z - used_k * used_theta
                     else:
                         z = torch.randn(init_samples_shape, device=self.config.device)
 
@@ -2652,7 +2961,9 @@ class NCSNRunner():
                         samples, _ = next(data_iter_cond)
                     except StopIteration:
                         if self.config.data.dataset.upper() == 'FFHQ':
-                            dataloader_cond = FFHQ_TFRecordsDataLoader([self.args.data_path], self.config.sampling.batch_size, self.config.data.image_size)
+                            dataloader_cond = FFHQ_TFRecordsDataLoader([self.args.data_path],
+                                                                       self.config.sampling.batch_size,
+                                                                       self.config.data.image_size)
                         data_iter_cond = iter(dataloader_cond)
                         samples, _ = next(data_iter_cond)
                     samples = samples.to(self.config.device)
@@ -2672,7 +2983,8 @@ class NCSNRunner():
                 final_samples = inverse_data_transform(self.config, all_samples[-1])
 
                 # Expand it out
-                final_samples = final_samples.reshape(-1, self.config.data.channels, self.config.data.image_size, self.config.data.image_size)
+                final_samples = final_samples.reshape(-1, self.config.data.channels, self.config.data.image_size,
+                                                      self.config.data.image_size)
 
             # FID
             if self.args.no_pr:
@@ -2725,28 +3037,50 @@ class NCSNRunner():
             self.mses, self.psnrs, self.ssims, self.lpipss, self.fvds = RunningAverageMeter(), RunningAverageMeter(), RunningAverageMeter(), RunningAverageMeter(), RunningAverageMeter()
             self.mses2, self.psnrs2, self.ssims2, self.lpipss2, self.fvds2 = RunningAverageMeter(), RunningAverageMeter(), RunningAverageMeter(), RunningAverageMeter(), RunningAverageMeter()
             self.fvds3 = RunningAverageMeter()
-            self.best_mse = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_psnr = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_ssim = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_lpips = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_fvd = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_mse2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_psnr2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_ssim2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_lpips2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_fvd2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_fvd3 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_mse = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                             'fvd': math.inf,
+                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                             'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_psnr = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                              'fvd': math.inf,
+                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                              'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_ssim = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                              'fvd': math.inf,
+                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                              'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_lpips = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                               'fvd': math.inf,
+                               'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                               'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_fvd = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                             'fvd': math.inf,
+                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                             'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_mse2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                              'fvd': math.inf,
+                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                              'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_psnr2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                               'fvd': math.inf,
+                               'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                               'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_ssim2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                               'fvd': math.inf,
+                               'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                               'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_lpips2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                                'fvd': math.inf,
+                                'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                                'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_fvd2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                              'fvd': math.inf,
+                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                              'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_fvd3 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                              'fvd': math.inf,
+                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                              'fvd2': math.inf, 'fvd3': math.inf}
 
     def load_meters(self):
         meters_pkl = os.path.join(self.args.log_path, 'meters.pkl')
@@ -2778,16 +3112,26 @@ class NCSNRunner():
             self.best_fvd = a['best_fvd']
         except:
             self.mses, self.psnrs, self.ssims, self.lpipss, self.fvds = RunningAverageMeter(), RunningAverageMeter(), RunningAverageMeter(), RunningAverageMeter(), RunningAverageMeter()
-            self.best_mse = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_psnr = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_ssim = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_lpips = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_fvd = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_mse = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                             'fvd': math.inf,
+                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                             'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_psnr = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                              'fvd': math.inf,
+                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                              'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_ssim = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                              'fvd': math.inf,
+                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                              'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_lpips = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                               'fvd': math.inf,
+                               'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                               'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_fvd = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                             'fvd': math.inf,
+                             'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                             'fvd2': math.inf, 'fvd3': math.inf}
         try:
             self.mses2 = a['mses2']
             self.psnrs2 = a['psnrs2']
@@ -2804,18 +3148,30 @@ class NCSNRunner():
         except:
             self.mses2, self.psnrs2, self.ssims2, self.lpipss2, self.fvds2 = RunningAverageMeter(), RunningAverageMeter(), RunningAverageMeter(), RunningAverageMeter(), RunningAverageMeter()
             self.fvds3 = RunningAverageMeter()
-            self.best_mse2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_psnr2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_ssim2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_lpips2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_fvd2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
-            self.best_fvd3 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf, 'fvd': math.inf,
-                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf, 'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_mse2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                              'fvd': math.inf,
+                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                              'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_psnr2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                               'fvd': math.inf,
+                               'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                               'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_ssim2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                               'fvd': math.inf,
+                               'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                               'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_lpips2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                                'fvd': math.inf,
+                                'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                                'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_fvd2 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                              'fvd': math.inf,
+                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                              'fvd2': math.inf, 'fvd3': math.inf}
+            self.best_fvd3 = {'ckpt': -1, 'mse': math.inf, 'psnr': -math.inf, 'ssim': -math.inf, 'lpips': math.inf,
+                              'fvd': math.inf,
+                              'mse2': math.inf, 'psnr2': -math.inf, 'ssim2': -math.inf, 'lpips2': math.inf,
+                              'fvd2': math.inf, 'fvd3': math.inf}
         return True
 
     def save_meters(self):
@@ -2825,8 +3181,8 @@ class NCSNRunner():
                 'epochs': self.epochs,
                 'losses_train': self.losses_train,
                 'losses_test': self.losses_test,
-                'lr_meter' : self.lr_meter,
-                'grad_norm' : self.grad_norm,
+                'lr_meter': self.lr_meter,
+                'grad_norm': self.grad_norm,
                 'time_train': self.time_train,
                 'time_elapsed': self.time_elapsed,
                 'mses': self.mses,
@@ -2850,7 +3206,7 @@ class NCSNRunner():
                 'best_lpips2': self.best_lpips2,
                 'best_fvd2': self.best_fvd2,
                 'best_fvd3': self.best_fvd3,
-                },
+            },
                 f, protocol=pickle.HIGHEST_PROTOCOL)
 
     def write_to_pickle(self, pickle_file, my_dict):

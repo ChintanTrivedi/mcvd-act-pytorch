@@ -44,7 +44,7 @@ def anneal_dsm_score_estimation(scorenet, x, actions, labels=None, loss_type='a'
     else:
         def pow_(x):
             return 1 / 2. * x.square()
-    loss = pow_((z - scorenet(perturbed_x, labels, cond_mask=cond_mask, actions=actions)).reshape(len(x), -1)).sum(
+    loss = pow_((z - scorenet(perturbed_x, labels, actions, cond_mask=cond_mask)).reshape(len(x), -1)).sum(
         dim=-1)
 
     if hook is not None:

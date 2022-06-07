@@ -791,7 +791,7 @@ class UNetMore_DDPM(nn.Module):
 
         self.noise_in_cond = getattr(config.model, 'noise_in_cond', False)
 
-    def forward(self, x, y, cond=None, cond_mask=None):
+    def forward(self, x, y, actions, cond=None, cond_mask=None):
 
         if self.noise_in_cond and cond is not None:  # We add noise to cond
             alphas = self.alphas
@@ -811,4 +811,4 @@ class UNetMore_DDPM(nn.Module):
                 z = torch.randn_like(cond)
             cond = used_alphas.sqrt() * cond + (1 - used_alphas).sqrt() * z
 
-        return self.unet(x, y, cond, cond_mask=cond_mask)
+        return self.unet(x, y, actions, cond, cond_mask=cond_mask)
