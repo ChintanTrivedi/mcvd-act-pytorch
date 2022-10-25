@@ -114,13 +114,17 @@ class NCSNpp(nn.Module):
                 temb_dim += nf // 2
 
             self.nonlinearity = Swish()
+            # self.aemb_dense = nn.Sequential(
+            #     nn.Linear(6, 64),
+            #     self.nonlinearity,
+            #     nn.Linear(64, 64),
+            #     self.nonlinearity
+            # )
+            # temb_dim += 64
             self.aemb_dense = nn.Sequential(
-                nn.Linear(6, 64),
-                self.nonlinearity,
-                nn.Linear(64, 64),
+                nn.Linear(3, temb_dim),
                 self.nonlinearity
             )
-            temb_dim += 64
 
         if self.pseudo3d:
             conv3x3 = functools.partial(layers3d.ddpm_conv3x3_pseudo3d, n_frames=self.n_frames,
@@ -309,7 +313,9 @@ class NCSNpp(nn.Module):
             m_idx += 1
 
             aemb = self.aemb_dense(actions)
-            temb = torch.cat([temb, aemb], dim=1)
+            # temb = torch.cat([temb, aemb], dim=1)
+
+            temb += aemb
 
             if self.cond_emb:
                 if cond_mask is None:

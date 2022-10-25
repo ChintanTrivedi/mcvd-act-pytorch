@@ -1,24 +1,29 @@
-import argparse
-import numpy as np
 import os
-import torch
-import yaml
-
 from collections import OrderedDict
-from imageio import mimwrite
+from functools import partial
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+import yaml
+from PIL import Image
 from torch.utils.data import DataLoader
-from torchvision.utils import make_grid, save_image
+from torch.utils.data import Dataset
+from torchvision import transforms as T
+from tqdm import tqdm
 
 try:
     from torchvision.transforms.functional import resize, InterpolationMode
+
     interp = InterpolationMode.NEAREST
 except:
     from torchvision.transforms.functional import resize
+
     interp = 0
 
-from datasets import get_dataset, data_transform, inverse_data_transform
+from datasets import data_transform, inverse_data_transform
 from main import dict2namespace
-from models import get_sigmas, anneal_Langevin_dynamics
 from models.ema import EMAHelper
 from runners.ncsn_runner import get_model, conditioning_fn
 
@@ -26,15 +31,6 @@ device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cp
 # device = torch.device('cpu')
 
 from models import ddpm_sampler
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description=globals()['__doc__'])
-    parser.add_argument('--ckpt_path', type=str, required=True, help='Path to checkpoint.pt')
-    parser.add_argument('--data_path', type=str, help='Path to the dataset')
-    parser.add_argument('--save_path', type=str, help='Path to the dataset')
-    args = parser.parse_args()
-    return args.ckpt_path, args.data_path, args.save_path
 
 
 # Make and load model
@@ -63,70 +59,145 @@ def load_model(ckpt_path, device):
     return scorenet, config
 
 
-if __name__ == '__main__':
-    # data_path = '/path/to/data/CIFAR10'
-    ckpt_path, data_path, save_path = parse_args()
+# data_path = '/path/to/data/CIFAR10'
+ckpt_path = r'C:\Users\chint\Documents\Malta documents\research\latent diffusion\mcvd\carla_action\final\checkpoint.pt'
+data_path = r'C:\Users\chint\Downloads\gifs_old\test\throttle_right'
+save_path = r'C:/Users/chint/Documents/Malta documents/research/latent diffusion/mcvd/carla_action/final/v2/'
 
-    scorenet, config = load_model(ckpt_path, device)
+scorenet, config = load_model(ckpt_path, device)
+net = scorenet.module if hasattr(scorenet, 'module') else scorenet
 
-    # Initial samples
-    dataset, test_dataset = get_dataset(data_path, config)
-    dataloader = DataLoader(dataset, batch_size=config.training.batch_size, shuffle=True,
-                            num_workers=config.data.num_workers)
-    train_iter = iter(dataloader)
-    x, y = next(train_iter)
-    test_loader = DataLoader(test_dataset, batch_size=config.training.batch_size, shuffle=False,
-                             num_workers=config.data.num_workers, drop_last=True)
-    test_iter = iter(test_loader)
-    test_x, test_y = next(test_iter)
 
-    net = scorenet.module if hasattr(scorenet, 'module') else scorenet
-    version = getattr(net, 'version', 'SMLD').upper()
-    net_type = getattr(net, 'type') if isinstance(getattr(net, 'type'), str) else 'v1'
+def seek_all_images(img, channels=3):
+    i = 0
+    while True:
+        try:
+            img.seek(i)
+            yield img.convert('RGB')
+        except EOFError:
+            break
+        i += 1
 
-    if version == "SMLD":
-        sigmas = net.sigmas
-        labels = torch.randint(0, len(sigmas), (x.shape[0],), device=x.device)
-        used_sigmas = sigmas[labels].reshape(x.shape[0], *([1] * len(x.shape[1:])))
-        device = sigmas.device
 
-    elif version == "DDPM" or version == "DDIM":
-        alphas = net.alphas
-        labels = torch.randint(0, len(alphas), (x.shape[0],), device=x.device)
-        used_alphas = alphas[labels].reshape(x.shape[0], *([1] * len(x.shape[1:])))
-        device = alphas.device
+def cast_num_frames(t, *, frames):
+    f = t.shape[1]
 
-    for batch, (X, y) in enumerate(dataloader):
-        break
+    if f == frames:
+        return torch.swapaxes(t, 0, 1)
 
+    if f > frames:
+        time_idx = np.random.choice(f - frames)
+        return torch.swapaxes(t[:, time_idx:time_idx + frames], 0, 1)
+
+    return torch.swapaxes(F.pad(t, (0, 0, 0, 0, 0, frames - f)), 0, 1)
+
+
+def gif_to_tensor(path, channels=3, transform=T.ToTensor()):
+    img = Image.open(path)
+    tensors = tuple(map(transform, seek_all_images(img, channels=channels)))
+    return torch.stack(tensors, dim=1)
+
+
+# drivegan
+# turn_right = [1.611762561798095703e-01, 1.254118710692751435e+01, 9.157459855079650879e-01,
+#               1.597717523574829102e+00, -4.675447642803192139e-01, -1.249152183532714844e+01]
+# turn_left = [1.611762561798095703e-01, 1.254118710692751435e+01, -2.157459855079650879e-01,
+#              1.597717523574829102e+00, -4.675447642803192139e-01, -1.249152183532714844e+01]
+# go_straight = [1.611762561798095703e-01, 1.254118710692751435e+01, 0.000000000000000000e+00,
+#                1.597717523574829102e+00, -4.675447642803192139e-01, -1.249152183532714844e+01]
+
+# customdata
+turn_left = [0., 1., 0.]
+go_straight = [0., 0., 1.]
+turn_right = [1., 0., 0.]
+
+
+class CarRacingDataset(Dataset):
+    def __init__(self, folder, image_size, channels=3, frames_per_sample=16, exts=['gif']):
+        super().__init__()
+        self.folder = folder
+        assert os.path.exists(self.folder)
+        self.image_size = image_size
+        self.channels = channels
+        self.paths = [p for ext in exts for p in Path(f'{folder}').glob(f'**/*.{ext}')]
+        self.cast_num_frames_fn = partial(cast_num_frames, frames=frames_per_sample)
+
+        self.transform = T.Compose([
+            T.Resize(image_size),
+            T.CenterCrop(image_size),
+            T.ToTensor()
+        ])
+
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, index):
+        path = self.paths[index]
+        tensor = gif_to_tensor(path, self.channels, transform=self.transform)
+        return self.cast_num_frames_fn(tensor), torch.tensor(turn_right, dtype=torch.float)
+
+
+# tensor of shape (channels, frames, height, width) -> gif
+def video_tensor_to_gif(tensor, path, duration=200, loop=0, optimize=True):
+    images = map(T.ToPILImage(), tensor.unbind(dim=1))
+    first_img, *rest_imgs = images
+    first_img.save(path, save_all=True, append_images=rest_imgs, duration=duration, loop=loop,
+                   optimize=optimize)
+    return images
+
+
+test_dataset = CarRacingDataset(folder=data_path,
+                                frames_per_sample=config.data.num_frames_cond + config.data.num_frames,
+                                image_size=config.data.image_size)
+
+test_loader = DataLoader(test_dataset, batch_size=4, shuffle=True, num_workers=0)
+conditional = config.data.num_frames_cond > 0
+
+for batch, (X, y) in enumerate(test_loader):
     X = X.to(config.device)
     X = data_transform(config, X)
-
-    conditional = config.data.num_frames_cond > 0
     cond = None
     if conditional:
-        X, cond = conditioning_fn(config, X)
+        X, cond, _ = conditioning_fn(config, X)
 
-    init_samples = torch.randn(len(X), config.data.channels*config.data.num_frames,
-                               config.data.image_size, config.data.image_size,
+    chain_total = 1
+    mega_samples = torch.zeros(len(X), config.data.num_frames_cond + config.data.num_frames * chain_total,
+                               config.data.channels, config.data.image_size, config.data.image_size,
                                device=config.device)
 
-    all_samples = ddpm_sampler(init_samples, scorenet, cond=cond[:len(init_samples)],
-                               n_steps_each=config.sampling.n_steps_each,
-                               step_lr=config.sampling.step_lr, just_beta=False,
-                               final_only=True, denoise=config.sampling.denoise,
-                               subsample_steps=getattr(config.sampling, 'subsample', None),
-                               verbose=True)
+    for chain in tqdm(range(chain_total)):
+        init_samples = torch.randn(len(X), config.data.channels * config.data.num_frames,
+                                   config.data.image_size, config.data.image_size,
+                                   device=config.device)
+        all_samples = ddpm_sampler(init_samples, scorenet, cond=cond[:len(init_samples)],
+                                   actions=y, n_steps_each=config.sampling.n_steps_each,
+                                   step_lr=config.sampling.step_lr, just_beta=False,
+                                   final_only=True, denoise=config.sampling.denoise,
+                                   subsample_steps=50, verbose=True)
 
-    sample = all_samples[-1].reshape(all_samples[-1].shape[0], config.data.channels,
-                                     config.data.image_size, config.data.image_size)
+        sample = all_samples[-1].reshape(all_samples[-1].shape[0], config.data.num_frames, config.data.channels,
+                                         config.data.image_size, config.data.image_size)
+        sample = inverse_data_transform(config, sample)
+        cond = cond.reshape(cond.shape[0], config.data.num_frames_cond, config.data.channels,
+                            config.data.image_size, config.data.image_size)
+        cond = inverse_data_transform(config, cond)
 
-    sample = inverse_data_transform(config, sample)
+        # combined_sample =
+        if chain == 0:
+            mega_samples[:, :config.data.num_frames_cond + config.data.num_frames, :, :, :] = torch.cat((cond, sample),
+                                                                                                        dim=1)
+        else:
+            mega_samples[:,
+            config.data.num_frames_cond + config.data.num_frames * chain:config.data.num_frames_cond + config.data.num_frames * chain + config.data.num_frames,
+            :, :, :] = sample
 
-    image_grid = make_grid(sample, np.sqrt(config.training.batch_size))
-    step = 0
-    save_image(image_grid,
-               os.path.join(save_path, 'image_grid_{}.png'.format(step)))
-    torch.save(sample, os.path.join(save_path, 'samples_{}.pt'.format(step)))
+        cond = torch.cat((cond[:, 1:3, :, :, :], sample[:, -1, :, :, :].unsqueeze(dim=1)), dim=1)
+        cond = cond.reshape(len(cond), -1, config.data.image_size, config.data.image_size)
 
-    # CUDA_VISIBLE_DEVICES=3 python -i load_model_from_ckpt.py --ckpt_path /path/to/ncsnv2/cifar10/BASELINE_DDPM_800k/logs/checkpoint.pt
+    # concatenate X and combined_sample tensors
+    for step in range(mega_samples.shape[0]):
+        video_tensor_to_gif(torch.swapaxes(mega_samples[step], 0, 1),
+                            path=os.path.join(save_path, f'sample{batch}{step}.gif'))
+    print('saved')
+    if batch > 12:
+        break

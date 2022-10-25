@@ -55,6 +55,47 @@ def gif_to_tensor(path, channels=3, transform=T.ToTensor()):
     return torch.stack(tensors, dim=1)
 
 
+class CARLADataset(Dataset):
+    def __init__(
+            self,
+            folder,
+            image_size,
+            channels=3,
+            frames_per_sample=16,
+            force_num_frames=True,
+            exts=['gif']
+    ):
+        super().__init__()
+        self.folder = folder
+        self.image_size = image_size
+        self.channels = channels
+        self.class_labels = os.listdir(self.folder)
+        self.paths = []
+        for class_label in self.class_labels:
+            self.paths.extend(os.listdir(os.path.join(self.folder, class_label)))
+
+        self.cast_num_frames_fn = partial(cast_num_frames, frames=frames_per_sample) if force_num_frames else identity
+
+        self.transform = T.Compose([
+            T.Resize(image_size),
+            T.CenterCrop(image_size),
+            T.ToTensor()
+        ])
+
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, index):
+        path = self.paths[index]
+        class_label = os.path.dirname(path)
+        action_tensor = torch.zeros(len(self.class_labels))
+        action_tensor[self.class_labels.index(class_label)] = 1
+        gif_tensor = self.cast_num_frames_fn(gif_to_tensor(path, self.channels, transform=self.transform))
+        return gif_tensor, action_tensor
+
+
+
+
 # class CARLADataset(Dataset):
 #     def __init__(self, folder, image_size, channels=3, frames_per_sample=16, horizontal_flip=False,
 #                  force_num_frames=True, exts=['gif']):
@@ -84,40 +125,40 @@ def gif_to_tensor(path, channels=3, transform=T.ToTensor()):
 #         return self.cast_num_frames_fn(tensor), torch.tensor(1)
 
 
-class CARLADataset(Dataset):
-    def __init__(
-            self,
-            folder,
-            image_size,
-            channels=3,
-            frames_per_sample=16,
-            horizontal_flip=False,
-            force_num_frames=True,
-            exts=['gif']
-    ):
-        super().__init__()
-        self.folder = folder
-        self.image_size = image_size
-        self.channels = channels
-        self.paths = os.listdir(self.folder)
-        # [p for ext in exts for p in Path(f'{folder}').glob(f'**/*.{ext}')]
-
-        self.cast_num_frames_fn = partial(cast_num_frames, frames=frames_per_sample) if force_num_frames else identity
-
-        self.transform = T.Compose([
-            T.Resize(image_size),
-            T.CenterCrop(image_size),
-            T.ToTensor()
-        ])
-
-    def __len__(self):
-        return len(self.paths)
-
-    def __getitem__(self, index):
-        path = self.paths[index]
-        forward_path = os.path.join(self.folder, path, 'forward.gif')
-        action_path = os.path.join(self.folder, path, 'action.txt')
-
-        action_tensor = torch.Tensor(np.loadtxt(action_path))
-        gif_tensor = self.cast_num_frames_fn(gif_to_tensor(forward_path, self.channels, transform=self.transform))
-        return gif_tensor, action_tensor
+# class CARLADataset(Dataset):
+#     def __init__(
+#             self,
+#             folder,
+#             image_size,
+#             channels=3,
+#             frames_per_sample=16,
+#             horizontal_flip=False,
+#             force_num_frames=True,
+#             exts=['gif']
+#     ):
+#         super().__init__()
+#         self.folder = folder
+#         self.image_size = image_size
+#         self.channels = channels
+#         self.paths = os.listdir(self.folder)
+#         # [p for ext in exts for p in Path(f'{folder}').glob(f'**/*.{ext}')]
+#
+#         self.cast_num_frames_fn = partial(cast_num_frames, frames=frames_per_sample) if force_num_frames else identity
+#
+#         self.transform = T.Compose([
+#             T.Resize(image_size),
+#             T.CenterCrop(image_size),
+#             T.ToTensor()
+#         ])
+#
+#     def __len__(self):
+#         return len(self.paths)
+#
+#     def __getitem__(self, index):
+#         path = self.paths[index]
+#         forward_path = os.path.join(self.folder, path, 'forward.gif')
+#         action_path = os.path.join(self.folder, path, 'action.txt')
+#
+#         action_tensor = torch.Tensor(np.loadtxt(action_path))
+#         gif_tensor = self.cast_num_frames_fn(gif_to_tensor(forward_path, self.channels, transform=self.transform))
+#         return gif_tensor, action_tensor
